@@ -57,7 +57,6 @@ def show_login():
 
 # ---------- MAIN APP ----------
 def show_main_app():
-    # Navbar
     st.markdown(f"""
         <div class='navbar'>
             <div class='navbar-title'>
@@ -70,7 +69,6 @@ def show_main_app():
         </div>
     """, unsafe_allow_html=True)
     
-    # Sidebar
     with st.sidebar:
         st.markdown(f"""
             <div style='text-align: center; padding: 1.5rem 0; margin-bottom: 1.5rem; 
@@ -117,7 +115,6 @@ def show_main_app():
             st.session_state.current_user = None
             st.rerun()
     
-    # Content Router
     if menu == "🏠 Dashboard":
         show_dashboard()
     elif menu == "➕ Add Task":
@@ -449,7 +446,6 @@ def show_filter_tasks():
     
     st.markdown("</div>", unsafe_allow_html=True)
     
-    # Apply filters
     filtered = my_tasks.copy()
     
     if status_filter != "All":
@@ -995,9 +991,9 @@ def show_settings():
         
         st.markdown("<div class='card'>", unsafe_allow_html=True)
         
+        import glob
         export_files = []
         for pattern in ['export_*.csv', 'export_*.xlsx', 'report_*.pdf']:
-            import glob
             export_files.extend(glob.glob(pattern))
         
         if export_files:
@@ -1721,6 +1717,3 @@ def create_task_from_habit(habit_id, name, recurrence, category):
     new_task = pd.DataFrame([{
         "id": st.session_state.task_id_counter,
         "task": name,
-        "priority": "Y",
-        "status": "Pending",
-        "created_at
