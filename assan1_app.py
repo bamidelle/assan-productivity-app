@@ -1,1719 +1,817 @@
-new_task = pd.DataFrame([{
-        "id": st.session_state.task_id_counter,
-        "task": name,
-        "priority": "Y",
-        "status": "Pending",
-        "created_at": pd.Timestamp.now(),
-        "completed_at": pd.NaT,
-        "deadline": deadline,
-        "ai_prediction": round(prob * 100, 2),
-        "category": category,
-        "tags": f"habit,{recurrence}",
-        "habit_id": habit_id,
-        "recurrence": recurrence,
-        "assigned_to": st.session_state.current_user,
-        "created_by": st.session_state.current_user,
-        "shared": False
-    }])
-    
-    st.session_state.df_tasks = pd.concat([st.session_state.df_tasks, new_task], ignore_index=True)
-    st.session_state.task_id_counter += 1
-
-# ---------- LOGIN PAGE ----------
-def show_login():
-    st.markdown("""
-        <div style='text-align: center; padding: 4rem 2rem;'>
-            <div style='font-size: 5rem; margin-bottom: 1rem;'>🎯</div>
-            <h1 style='font-size: 48px; margin-bottom: 0.5rem;'>ASSAN</h1>
-            <p style='font-size: 20px; color: #C9C9D1; font-weight: 500; margin-bottom: 0.5rem;'>Productivity Studio</p>
-            <p style='font-size: 16px; color: #C9C9D1;'>32 Powerful Features • AI-Powered • Team Collaboration</p>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.markdown("<div class='card' style='padding: 2.5rem;'>", unsafe_allow_html=True)
-        st.markdown("### 👋 Welcome Back")
-        username = st.text_input("Enter your name", key="login_username", placeholder="Your name...")
-        
-        if st.button("🚀 Get Started", type="primary", use_container_width=True):
-            if username.strip():
-                st.session_state.current_user = username.strip()
-                
-                if username not in st.session_state.df_users["username"].values:
-                    new_user = pd.DataFrame([{
-                        "username": username,
-                        "role": "owner",
-                        "added_at": pd.Timestamp.now(),
-                        "added_by": "self"
-                    }])
-                    st.session_state.df_users = pd.concat([st.session_state.df_users, new_user], ignore_index=True)
-                    save_data()
-                
-                st.rerun()
-            else:
-                st.error("Please enter your name")
-        st.markdown("</div>", unsafe_allow_html=True)
-
-# ---------- MAIN APP ----------
-def show_main_app():
-    st.markdown(f"""
-        <div class='navbar'>
-            <div class='navbar-title'>
-                <span style='font-size: 32px;'>🎯</span>
-                <span>ASSAN</span>
-                <span style='font-size: 16px; color: #C9C9D1; font-weight: 400; margin-left: 1rem;'>
-                    Welcome, {st.session_state.current_user}
-                </span>
-            </div>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    with st.sidebar:
-        st.markdown(f"""
-            <div style='text-align: center; padding: 1.5rem 0; margin-bottom: 1.5rem; 
-                border-bottom: 1px solid rgba(255, 255, 255, 0.08);'>
-                <div style='font-size: 3rem; margin-bottom: 0.5rem;'>👤</div>
-                <div style='font-size: 20px; font-weight: 700; color: #F4F4F9;'>{st.session_state.current_user}</div>
-            </div>
-        """, unsafe_allow_html=True)
-        
-        my_tasks = get_my_tasks()
-        total = len(my_tasks)
-        completed = len(my_tasks[my_tasks["status"] == "Completed"])
-        
-        col1, col2 = st.columns(2)
-        col1.metric("Tasks", total)
-        col2.metric("Done", completed)
-        
-        if total > 0:
-            completion_rate = (completed / total * 100)
-            st.progress(completion_rate / 100)
-            st.caption(f"Progress: {completion_rate:.1f}%")
-        
-        st.markdown("<div style='margin: 2rem 0;'></div>", unsafe_allow_html=True)
-        
-        menu = st.radio("Navigation", [
-            "🏠 Dashboard",
-            "➕ Add Task",
-            "📝 View Tasks",
-            "🗑️ Remove Task",
-            "✅ Complete Task",
-            "✏️ Edit Task",
-            "🔍 Filter Tasks",
-            "🔥 Habits",
-            "👥 Team",
-            "📊 Analytics",
-            "🤖 AI & Training",
-            "📤 Export & Reports",
-            "⚙️ Settings"
-        ], label_visibility="collapsed")
-        
-        st.markdown("<div style='margin-top: 3rem;'></div>", unsafe_allow_html=True)
-        
-        if st.button("🚪 Logout", use_container_width=True):
-            st.session_state.current_user = None
-            st.rerun()
-    
-    if menu == "🏠 Dashboard":
-        show_dashboard()
-    elif menu == "➕ Add Task":
-        show_add_task()
-    elif menu == "📝 View Tasks":
-        show_view_tasks()
-    elif menu == "🗑️ Remove Task":
-        show_remove_task()
-    elif menu == "✅ Complete Task":
-        show_complete_task()
-    elif menu == "✏️ Edit Task":
-        show_edit_task()
-    elif menu == "🔍 Filter Tasks":
-        show_filter_tasks()
-    elif menu == "🔥 Habits":
-        show_habits()
-    elif menu == "👥 Team":
-        show_team()
-    elif menu == "📊 Analytics":
-        show_analytics()
-    elif menu == "🤖 AI & Training":
-        show_ai_features()
-    elif menu == "📤 Export & Reports":
-        show_exports()
-    elif menu == "⚙️ Settings":
-        show_settings()
-
-# ---------- DASHBOARD ----------
-def show_dashboard():
-    st.title("🏠 Dashboard")
-    
-    my_tasks = get_my_tasks()
-    
-    col1, col2, col3, col4 = st.columns(4)
-    total = len(my_tasks)
-    completed = len(my_tasks[my_tasks["status"] == "Completed"])
-    pending = len(my_tasks[my_tasks["status"] == "Pending"])
-    high_priority = len(my_tasks[my_tasks["priority"] == "Y"])
-    
-    col1.metric("📋 Total Tasks", total)
-    col2.metric("✅ Completed", completed)
-    col3.metric("⏳ Pending", pending)
-    col4.metric("⚡ High Priority", high_priority)
-    
-    st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
-    
-    show_reminders_section()
-    
-    st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("### 📈 Recent Tasks")
-        recent = my_tasks.sort_values("created_at", ascending=False).head(5)
-        if not recent.empty:
-            for _, task in recent.iterrows():
-                status_icon = "✅" if task["status"] == "Completed" else "⏳"
-                st.markdown(f"""
-                <div class='task-card'>
-                    {status_icon} <strong>{task['task']}</strong>
-                </div>
-                """, unsafe_allow_html=True)
-        else:
-            st.info("No tasks yet")
-    
-    with col2:
-        st.markdown("### 🔥 Habit Streaks")
-        active_habits = st.session_state.df_habits[st.session_state.df_habits["active"] == True]
-        if not active_habits.empty:
-            for _, habit in active_habits.head(5).iterrows():
-                streak = calculate_streak(int(habit["habit_id"]))
-                st.markdown(f"""
-                <div class='task-card'>
-                    🔥 <strong>{habit['habit_name']}</strong>: {streak} day streak
-                </div>
-                """, unsafe_allow_html=True)
-        else:
-            st.info("No active habits")
-
-# ---------- ADD TASK ----------
-def show_add_task():
-    st.title("➕ Add New Task")
-    
-    st.markdown("<div class='card'>", unsafe_allow_html=True)
-    
-    with st.form("add_task_form"):
-        task_name = st.text_input("Task Name", placeholder="Enter task description...")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            priority = st.selectbox("Priority", ["Normal", "High"])
-        with col2:
-            category = st.selectbox("Category", list(CATEGORIES.keys()))
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            deadline_date = st.date_input("Deadline (Optional)", value=None)
-        with col2:
-            deadline_time = st.time_input("Time", value=datetime.now().time())
-        
-        tags = st.text_input("Tags (comma separated)", placeholder="urgent, important")
-        
-        submitted = st.form_submit_button("➕ Add Task", type="primary", use_container_width=True)
-        
-        if submitted:
-            if task_name.strip():
-                if deadline_date:
-                    deadline_dt = datetime.combine(deadline_date, deadline_time)
-                else:
-                    deadline_dt = pd.NaT
-                
-                priority_val = "Y" if priority == "High" else "N"
-                prob = predict_prob({"priority": priority_val, "task": task_name})
-                
-                new_task = pd.DataFrame([{
-                    "id": st.session_state.task_id_counter,
-                    "task": task_name,
-                    "priority": priority_val,
-                    "status": "Pending",
-                    "created_at": pd.Timestamp.now(),
-                    "completed_at": pd.NaT,
-                    "deadline": deadline_dt,
-                    "ai_prediction": round(prob * 100, 2),
-                    "category": category,
-                    "tags": tags,
-                    "habit_id": np.nan,
-                    "recurrence": "none",
-                    "assigned_to": st.session_state.current_user,
-                    "created_by": st.session_state.current_user,
-                    "shared": False
-                }])
-                
-                st.session_state.df_tasks = pd.concat([st.session_state.df_tasks, new_task], ignore_index=True)
-                st.session_state.task_id_counter += 1
-                save_data()
-                
-                st.success(f"✅ Task added! AI Prediction: {round(prob * 100, 2)}%")
-                time.sleep(1)
-                st.rerun()
-            else:
-                st.error("❌ Please enter a task name")
-    
-    st.markdown("</div>", unsafe_allow_html=True)
-
-# ---------- VIEW TASKS ----------
-def show_view_tasks():
-    st.title("📝 My Tasks")
-    
-    my_tasks = get_my_tasks()
-    
-    if my_tasks.empty:
-        st.info("📭 No tasks yet. Create your first task!")
-        return
-    
-    st.write(f"**Total: {len(my_tasks)} tasks**")
-    
-    for _, task in my_tasks.iterrows():
-        status_icon = "✅" if task["status"] == "Completed" else "⏳"
-        priority_icon = "⚡" if task["priority"] == "Y" else ""
-        
-        st.markdown(f"""
-        <div class='task-card'>
-            <div style='display: flex; justify-content: space-between; align-items: center;'>
-                <div>
-                    <strong>#{int(task['id'])}</strong> {status_icon} {priority_icon} <strong>{task['task']}</strong>
-                    <br>
-                    <span style='color: #C9C9D1; font-size: 15px;'>
-                        {CATEGORIES[task['category']]['icon']} {task['category']} | 
-                        AI: {task['ai_prediction']:.0f}% | 
-                        {task['created_at'].strftime('%Y-%m-%d')}
-                    </span>
-                </div>
-                <div style='text-align: right;'>
-                    <strong>{time_left_str(task['deadline'])}</strong><br>
-                    <span style='font-size: 15px;'>{task['status']}</span>
-                </div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-# ---------- REMOVE TASK ----------
-def show_remove_task():
-    st.title("🗑️ Remove Task")
-    
-    my_tasks = get_my_tasks()
-    
-    if my_tasks.empty:
-        st.info("No tasks to remove")
-        return
-    
-    st.markdown("<div class='card'>", unsafe_allow_html=True)
-    
-    task_options = {f"#{int(row['id'])} - {row['task']}": int(row['id']) for _, row in my_tasks.iterrows()}
-    selected = st.selectbox("Select task to remove:", list(task_options.keys()))
-    
-    if selected:
-        task_id = task_options[selected]
-        task = my_tasks[my_tasks["id"] == task_id].iloc[0]
-        
-        st.warning(f"⚠️ You are about to delete: **{task['task']}**")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("🗑️ Confirm Delete", type="primary", use_container_width=True):
-                delete_task(task_id)
-                st.success("✅ Task deleted!")
-                time.sleep(1)
-                st.rerun()
-    
-    st.markdown("</div>", unsafe_allow_html=True)
-
-# ---------- COMPLETE TASK ----------
-def show_complete_task():
-    st.title("✅ Complete Task")
-    
-    my_tasks = get_my_tasks()
-    pending = my_tasks[my_tasks["status"] == "Pending"]
-    
-    if pending.empty:
-        st.success("🎉 All tasks completed!")
-        return
-    
-    st.markdown("<div class='card'>", unsafe_allow_html=True)
-    
-    task_options = {f"#{int(row['id'])} - {row['task']}": int(row['id']) for _, row in pending.iterrows()}
-    selected = st.selectbox("Select task to complete:", list(task_options.keys()))
-    
-    if selected:
-        task_id = task_options[selected]
-        task = pending[pending["id"] == task_id].iloc[0]
-        
-        st.markdown(f"""
-        <div style='background: rgba(255, 255, 255, 0.03); border-radius: 12px; padding: 1.5rem; margin: 1rem 0;'>
-            <h3>{task['task']}</h3>
-            <p><strong>Category:</strong> {CATEGORIES[task['category']]['icon']} {task['category']}</p>
-            <p><strong>Priority:</strong> {'⚡ High' if task['priority'] == 'Y' else '📍 Normal'}</p>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        if st.button("✅ Mark as Completed", type="primary", use_container_width=True):
-            complete_task(task_id)
-            
-            if not pd.isna(task["habit_id"]):
-                streak = calculate_streak(int(task["habit_id"]))
-                st.success(f"🎉 Task completed! 🔥 {streak} day streak!")
-            else:
-                st.success("🎉 Task completed!")
-            
-            time.sleep(1)
-            st.rerun()
-    
-    st.markdown("</div>", unsafe_allow_html=True)
-
-# ---------- EDIT TASK ----------
-def show_edit_task():
-    st.title("✏️ Edit Task")
-    
-    my_tasks = get_my_tasks()
-    
-    if my_tasks.empty:
-        st.info("No tasks to edit")
-        return
-    
-    st.markdown("<div class='card'>", unsafe_allow_html=True)
-    
-    task_options = {f"#{int(row['id'])} - {row['task']}": int(row['id']) for _, row in my_tasks.iterrows()}
-    selected = st.selectbox("Select task to edit:", list(task_options.keys()))
-    
-    if selected:
-        task_id = task_options[selected]
-        task = my_tasks[my_tasks["id"] == task_id].iloc[0]
-        
-        with st.form("edit_task_form"):
-            new_name = st.text_input("Task Name", value=task['task'])
-            new_priority = st.selectbox("Priority", ["Normal", "High"], 
-                                       index=0 if task['priority'] == 'N' else 1)
-            new_category = st.selectbox("Category", list(CATEGORIES.keys()),
-                                       index=list(CATEGORIES.keys()).index(task['category']))
-            
-            if not pd.isna(task['deadline']):
-                default_date = task['deadline'].date()
-                default_time = task['deadline'].time()
-            else:
-                default_date = None
-                default_time = datetime.now().time()
-            
-            new_deadline_date = st.date_input("Deadline Date", value=default_date)
-            new_deadline_time = st.time_input("Deadline Time", value=default_time)
-            
-            if st.form_submit_button("💾 Save Changes", type="primary"):
-                st.session_state.df_tasks.loc[st.session_state.df_tasks["id"] == task_id, "task"] = new_name
-                st.session_state.df_tasks.loc[st.session_state.df_tasks["id"] == task_id, "priority"] = "Y" if new_priority == "High" else "N"
-                st.session_state.df_tasks.loc[st.session_state.df_tasks["id"] == task_id, "category"] = new_category
-                
-                if new_deadline_date:
-                    new_deadline = datetime.combine(new_deadline_date, new_deadline_time)
-                    st.session_state.df_tasks.loc[st.session_state.df_tasks["id"] == task_id, "deadline"] = new_deadline
-                
-                save_data()
-                st.success("✅ Task updated!")
-                time.sleep(1)
-                st.rerun()
-    
-    st.markdown("</div>", unsafe_allow_html=True)
-
-# ---------- FILTER TASKS ----------
-def show_filter_tasks():
-    st.title("🔍 Filter & Search Tasks")
-    
-    my_tasks = get_my_tasks()
-    
-    if my_tasks.empty:
-        st.info("No tasks to filter")
-        return
-    
-    st.markdown("<div class='card'>", unsafe_allow_html=True)
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        status_filter = st.selectbox("Status", ["All", "Pending", "Completed"])
-    with col2:
-        priority_filter = st.selectbox("Priority", ["All", "High", "Normal"])
-    with col3:
-        category_filter = st.selectbox("Category", ["All"] + list(CATEGORIES.keys()))
-    
-    tag_search = st.text_input("Search by Tag", placeholder="Enter tag...")
-    
-    st.markdown("</div>", unsafe_allow_html=True)
-    
-    filtered = my_tasks.copy()
-    
-    if status_filter != "All":
-        filtered = filtered[filtered["status"] == status_filter]
-    
-    if priority_filter != "All":
-        pri_val = "Y" if priority_filter == "High" else "N"
-        filtered = filtered[filtered["priority"] == pri_val]
-    
-    if category_filter != "All":
-        filtered = filtered[filtered["category"] == category_filter]
-    
-    if tag_search:
-        filtered = filtered[filtered["tags"].str.contains(tag_search, case=False, na=False)]
-    
-    st.write(f"**Found {len(filtered)} tasks**")
-    
-    for _, task in filtered.iterrows():
-        status_icon = "✅" if task["status"] == "Completed" else "⏳"
-        priority_icon = "⚡" if task["priority"] == "Y" else ""
-        
-        st.markdown(f"""
-        <div class='task-card'>
-            <strong>#{int(task['id'])}</strong> {status_icon} {priority_icon} {task['task']} 
-            <span style='float: right;'>{time_left_str(task['deadline'])} | {task['status']}</span>
-        </div>
-        """, unsafe_allow_html=True)
-
-# ---------- HABITS ----------
-def show_habits():
-    st.title("🔥 Habits")
-    
-    tab1, tab2, tab3 = st.tabs(["Active Habits", "Create Habit", "Habit Dashboard"])
-    
-    with tab1:
-        active_habits = st.session_state.df_habits[st.session_state.df_habits["active"] == True]
-        
-        if active_habits.empty:
-            st.info("No habits yet. Create your first habit!")
-        else:
-            for _, habit in active_habits.iterrows():
-                streak = calculate_streak(int(habit["habit_id"]))
-                
-                with st.expander(f"🔥 {habit['habit_name']} - {streak} day streak"):
-                    col1, col2, col3 = st.columns(3)
-                    col1.metric("Frequency", habit['recurrence'].title())
-                    col2.metric("Streak", f"{streak} days")
-                    col3.metric("Total", int(habit['total_completions']))
-    
-    with tab2:
-        st.markdown("<div class='card'>", unsafe_allow_html=True)
-        
-        with st.form("create_habit"):
-            habit_name = st.text_input("Habit Name", placeholder="Exercise daily...")
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                recurrence = st.selectbox("Frequency", ["daily", "weekly", "monthly"])
-            with col2:
-                category = st.selectbox("Category", list(CATEGORIES.keys()))
-            
-            if st.form_submit_button("🔥 Create Habit", type="primary"):
-                if habit_name.strip():
-                    new_habit = pd.DataFrame([{
-                        "habit_id": st.session_state.habit_id_counter,
-                        "habit_name": habit_name,
-                        "recurrence": recurrence,
-                        "category": category,
-                        "active": True,
-                        "created_at": pd.Timestamp.now(),
-                        "last_completed": pd.NaT,
-                        "total_completions": 0
-                    }])
-                    
-                    st.session_state.df_habits = pd.concat([st.session_state.df_habits, new_habit], ignore_index=True)
-                    create_task_from_habit(st.session_state.habit_id_counter, habit_name, recurrence, category)
-                    st.session_state.habit_id_counter += 1
-                    save_data()
-                    
-                    st.success("✅ Habit created!")
-                    time.sleep(1)
-                    st.rerun()
-        
-        st.markdown("</div>", unsafe_allow_html=True)
-    
-    with tab3:
-        st.markdown("### 🏆 Habit Leaderboard")
-        
-        active_habits = st.session_state.df_habits[st.session_state.df_habits["active"] == True]
-        
-        if not active_habits.empty:
-            for i, habit in enumerate(active_habits.iterrows()):
-                _, h = habit
-                streak = calculate_streak(int(h["habit_id"]))
-                medal = "🥇" if i == 0 else "🥈" if i == 1 else "🥉" if i == 2 else "🏅"
-                st.markdown(f"""
-                <div class='card'>
-                    {medal} <strong>{h['habit_name']}</strong>: {streak} day streak ({int(h['total_completions'])} total)
-                </div>
-                """, unsafe_allow_html=True)
-
-# ---------- TEAM ----------
-def show_team():
-    st.title("👥 Team Management")
-    
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Members", "Add Member", "Assign Task", "Comments", "Dashboard"])
-    
-    with tab1:
-        if st.session_state.df_users.empty:
-            st.info("No team members yet")
-        else:
-            for _, user in st.session_state.df_users.iterrows():
-                user_tasks = st.session_state.df_tasks[st.session_state.df_tasks["assigned_to"] == user["username"]]
-                total = len(user_tasks)
-                completed = len(user_tasks[user_tasks["status"] == "Completed"])
-                
-                with st.expander(f"👤 {user['username']} ({user['role']})"):
-                    col1, col2, col3 = st.columns(3)
-                    col1.metric("Tasks", total)
-                    col2.metric("Completed", completed)
-                    if total > 0:
-                        col3.metric("Rate", f"{(completed/total*100):.1f}%")
-    
-    with tab2:
-        st.markdown("<div class='card'>", unsafe_allow_html=True)
-        
-        with st.form("add_member"):
-            username = st.text_input("Username")
-            role = st.selectbox("Role", ["member", "manager"])
-            
-            if st.form_submit_button("➕ Add Member", type="primary"):
-                if username.strip() and username not in st.session_state.df_users["username"].values:
-                    new_user = pd.DataFrame([{
-                        "username": username,
-                        "role": role,
-                        "added_at": pd.Timestamp.now(),
-                        "added_by": st.session_state.current_user
-                    }])
-                    
-                    st.session_state.df_users = pd.concat([st.session_state.df_users, new_user], ignore_index=True)
-                    save_data()
-                    st.success(f"✅ Added {username}")
-                    time.sleep(1)
-                    st.rerun()
-        
-        st.markdown("</div>", unsafe_allow_html=True)
-    
-    with tab3:
-        my_tasks = get_my_tasks()
-        
-        if my_tasks.empty:
-            st.info("No tasks to assign")
-        elif len(st.session_state.df_users) <= 1:
-            st.info("Add team members first")
-        else:
-            st.markdown("<div class='card'>", unsafe_allow_html=True)
-            
-            task_options = {f"#{int(row['id'])} - {row['task']}": int(row['id']) for _, row in my_tasks.iterrows()}
-            selected_task = st.selectbox("Select task:", list(task_options.keys()))
-            
-            user_options = st.session_state.df_users["username"].tolist()
-            selected_user = st.selectbox("Assign to:", user_options)
-            
-            if st.button("📤 Assign Task", type="primary"):
-                task_id = task_options[selected_task]
-                st.session_state.df_tasks.loc[st.session_state.df_tasks["id"] == task_id, "assigned_to"] = selected_user
-                st.session_state.df_tasks.loc[st.session_state.df_tasks["id"] == task_id, "shared"] = True
-                save_data()
-                st.success(f"✅ Assigned to {selected_user}")
-                time.sleep(1)
-                st.rerun()
-            
-            st.markdown("</div>", unsafe_allow_html=True)
-    
-    with tab4:
-        my_tasks = get_my_tasks()
-        
-        if my_tasks.empty:
-            st.info("No tasks")
-        else:
-            st.markdown("<div class='card'>", unsafe_allow_html=True)
-            
-            task_options = {f"#{int(row['id'])} - {row['task']}": int(row['id']) for _, row in my_tasks.iterrows()}
-            selected_task = st.selectbox("Task:", list(task_options.keys()))
-            
-            task_id = task_options[selected_task]
-            task_comments = st.session_state.df_comments[st.session_state.df_comments["task_id"] == task_id]
-            
-            if not task_comments.empty:
-                for _, comment in task_comments.iterrows():
-                    st.info(f"👤 **{comment['username']}** ({comment['timestamp'].strftime('%Y-%m-%d %H:%M')})\n\n{comment['comment']}")
-            
-            with st.form("add_comment"):
-                new_comment = st.text_area("Add comment:")
-                
-                if st.form_submit_button("💬 Add Comment"):
-                    if new_comment.strip():
-                        new_row = pd.DataFrame([{
-                            "comment_id": st.session_state.comment_id_counter,
-                            "task_id": task_id,
-                            "username": st.session_state.current_user,
-                            "comment": new_comment,
-                            "timestamp": pd.Timestamp.now()
-                        }])
-                        
-                        st.session_state.df_comments = pd.concat([st.session_state.df_comments, new_row], ignore_index=True)
-                        st.session_state.comment_id_counter += 1
-                        save_data()
-                        st.success("✅ Comment added!")
-                        time.sleep(1)
-                        st.rerun()
-            
-            st.markdown("</div>", unsafe_allow_html=True)
-    
-    with tab5:
-        if len(st.session_state.df_users) <= 1:
-            st.info("Add team members")
-        else:
-            team_stats = []
-            for _, user in st.session_state.df_users.iterrows():
-                user_tasks = st.session_state.df_tasks[st.session_state.df_tasks["assigned_to"] == user["username"]]
-                total = len(user_tasks)
-                completed = len(user_tasks[user_tasks["status"] == "Completed"])
-                rate = (completed / total * 100) if total > 0 else 0
-                
-                team_stats.append({
-                    "Member": user["username"],
-                    "Total": total,
-                    "Completed": completed,
-                    "Rate %": round(rate, 1)
-                })
-            
-            df_team = pd.DataFrame(team_stats).sort_values("Rate %", ascending=False)
-            st.dataframe(df_team, use_container_width=True)
-
-# ---------- ANALYTICS ----------
-def show_analytics():
-    st.title("📊 Analytics & Insights")
-    
-    my_tasks = get_my_tasks()
-    
-    if my_tasks.empty:
-        st.info("No data yet")
-        return
-    
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Overview", "Weekly", "Top Days", "Trends", "Smart Analysis"])
-    
-    with tab1:
-        st.markdown("### Category Breakdown")
-        
-        category_stats = my_tasks.groupby("category").agg({
-            "status": ["count", lambda x: (x == "Completed").sum()]
-        }).reset_index()
-        category_stats.columns = ["Category", "Total", "Completed"]
-        category_stats["Rate %"] = (category_stats["Completed"] / category_stats["Total"] * 100).round(1)
-        
-        st.dataframe(category_stats, use_container_width=True)
-        
-        fig, ax = plt.subplots(figsize=(8, 6), facecolor='#0F0F1A')
-        ax.set_facecolor('#0F0F1A')
-        ax.pie(category_stats["Total"], labels=category_stats["Category"], autopct='%1.1f%%', 
-               startangle=90, colors=['#4C6EF5', '#48BB78', '#9F7AEA', '#F56565', '#ED8936', '#5C7CFA'],
-               textprops={'color': 'white', 'fontsize': 12})
-        ax.set_title("Tasks by Category", color='white', fontsize=16, pad=20)
-        st.pyplot(fig)
-    
-    with tab2:
-        st.markdown("### Weekly Summary")
-        
-        week_start = datetime.now() - timedelta(days=7)
-        week_tasks = my_tasks[my_tasks["created_at"] >= week_start]
-        
-        total = len(week_tasks)
-        completed = len(week_tasks[week_tasks["status"] == "Completed"])
-        rate = (completed / total * 100) if total > 0 else 0
-        
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Created", total)
-        col2.metric("Completed", completed)
-        col3.metric("Rate", f"{rate:.1f}%")
-    
-    with tab3:
-        st.markdown("### Most Productive Days")
-        
-        completed_tasks = my_tasks[my_tasks["status"] == "Completed"].copy()
-        
-        if not completed_tasks.empty:
-            completed_tasks["date"] = completed_tasks["completed_at"].dt.date
-            daily_counts = completed_tasks.groupby("date").size().reset_index(name="Tasks")
-            top_days = daily_counts.sort_values("Tasks", ascending=False).head(5)
-            
-            for i, row in top_days.iterrows():
-                medal = "🥇" if i == 0 else "🥈" if i == 1 else "🥉" if i == 2 else "🏅"
-                st.markdown(f"""
-                <div class='card'>
-                    {medal} <strong>{row['date']}</strong>: {row['Tasks']} tasks
-                </div>
-                """, unsafe_allow_html=True)
-    
-    with tab4:
-        st.markdown("### Productivity Trend")
-        
-        completed_tasks = my_tasks[my_tasks["status"] == "Completed"].copy()
-        
-        if not completed_tasks.empty:
-            completed_tasks["date"] = completed_tasks["completed_at"].dt.date
-            daily_counts = completed_tasks.groupby("date").size().reset_index(name="count")
-            
-            fig, ax = plt.subplots(figsize=(10, 5), facecolor='#0F0F1A')
-            ax.set_facecolor('#0F0F1A')
-            ax.plot(daily_counts["date"], daily_counts["count"], marker='o', color='#4C6EF5', linewidth=2, markersize=8)
-            ax.set_xlabel("Date", color='white', fontsize=12)
-            ax.set_ylabel("Tasks Completed", color='white', fontsize=12)
-            ax.tick_params(colors='white')
-            ax.grid(True, alpha=0.2, color='white')
-            ax.spines['bottom'].set_color('white')
-            ax.spines['left'].set_color('white')
-            ax.spines['top'].set_visible(False)
-            ax.spines['right'].set_visible(False)
-            plt.xticks(rotation=45)
-            plt.tight_layout()
-            st.pyplot(fig)
-    
-    with tab5:
-        st.markdown("### Smart Analysis")
-        
-        total = len(my_tasks)
-        completed = len(my_tasks[my_tasks["status"] == "Completed"])
-        rate = (completed / total * 100) if total > 0 else 0
-        
-        st.metric("Completion Rate", f"{rate:.1f}%")
-        
-        if rate >= 70:
-            st.success("🎉 Excellent productivity!")
-        elif rate >= 50:
-            st.info("👍 Good progress!")
-        else:
-            st.warning("💪 Focus on completing tasks!")
-
-# ---------- AI FEATURES ----------
-def show_ai_features():
-    st.title("🤖 AI Features")
-    
-    tab1, tab2 = st.tabs(["AI Daily Plan", "Train AI Model"])
-    
-    with tab1:
-        st.markdown("### Your AI-Powered Daily Plan")
-        
-        my_tasks = get_my_tasks()
-        pending = my_tasks[my_tasks["status"] == "Pending"]
-        
-        if pending.empty:
-            st.success("🎉 All caught up!")
-        else:
-            top_tasks = pending.sort_values("ai_prediction", ascending=False).head(5)
-            
-            for i, (_, task) in enumerate(top_tasks.iterrows(), 1):
-                st.markdown(f"""
-                <div class='card'>
-                    <strong>{i}. {task['task']}</strong><br>
-                    <span style='color: #C9C9D1;'>AI: {task['ai_prediction']:.0f}% | {time_left_str(task['deadline'])}</span>
-                </div>
-                """, unsafe_allow_html=True)
-    
-    with tab2:
-        st.markdown("<div class='card'>", unsafe_allow_html=True)
-        
-        my_tasks = get_my_tasks()
-        completed = my_tasks[my_tasks["status"] == "Completed"]
-        
-        st.write(f"**Training Data:** {len(completed)} completed tasks")
-        
-        if len(completed) < 10:
-            st.warning(f"Need 10+ completed tasks. You have {len(completed)}.")
-        else:
-            if st.button("🚀 Train AI Model", type="primary"):
-                with st.spinner("Training..."):
-                    d = my_tasks.copy()
-                    d["priority_num"] = d["priority"].map({"Y": 1, "N": 0}).fillna(0).astype(int)
-                    d["task_len"] = d["task"].astype(str).apply(len)
-                    d["completed"] = (d["status"] == "Completed").astype(int)
-                    
-                    X = d[["priority_num", "task_len"]]
-                    y = d["completed"]
-                    
-                    if len(y.unique()) >= 2:
-                        model = LogisticRegression(max_iter=200)
-                        model.fit(X, y)
-                        st.session_state.trained_model = model
-                        
-                        for idx, row in st.session_state.df_tasks.iterrows():
-                            prob = predict_prob(row)
-                            st.session_state.df_tasks.at[idx, "ai_prediction"] = round(prob * 100, 2)
-                        
-                        save_data()
-                        st.success("✅ AI Model trained!")
-        
-        st.markdown("</div>", unsafe_allow_html=True)
-
-# ---------- EXPORTS ----------
-def show_exports():
-    st.title("📤 Export & Reports")
-    
-    my_tasks = get_my_tasks()
-    
-    tab1, tab2, tab3, tab4 = st.tabs(["CSV", "Excel", "PDF", "Email Summary"])
-    
-    with tab1:
-        st.markdown("<div class='card'>", unsafe_allow_html=True)
-        
-        if st.button("Generate CSV", type="primary"):
-            csv = my_tasks.to_csv(index=False)
-            
-            st.download_button(
-                label="⬇️ Download CSV",
-                data=csv,
-                file_name=f"assan_tasks_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv",
-                use_container_width=True
-            )
-            
-            st.success(f"✅ CSV ready! {len(my_tasks)} tasks exported")
-        
-        st.markdown("</div>", unsafe_allow_html=True)
-    
-    with tab2:
-        st.markdown("<div class='card'>", unsafe_allow_html=True)
-        
-        if st.button("Generate Excel", type="primary"):
-            try:
-                output = io.BytesIO()
-                with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                    my_tasks.to_excel(writer, sheet_name='All Tasks', index=False)
-                    
-                    summary = my_tasks.groupby("category").agg({
-                        "status": ["count", lambda x: (x == "Completed").sum()]
-                    }).reset_index()
-                    summary.columns = ["Category", "Total", "Completed"]
-                    summary["Rate %"] = (summary["Completed"] / summary["Total"] * 100).round(1)
-                    summary.to_excel(writer, sheet_name='Summary', index=False)
-                
-                output.seek(0)
-                
-                st.download_button(
-                    label="⬇️ Download Excel",
-                    data=output,
-                    file_name=f"assan_tasks_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
-                )
-                
-                st.success("✅ Excel ready!")
-            except:
-                st.error("❌ openpyxl not installed. Use CSV export.")
-        
-        st.markdown("</div>", unsafe_allow_html=True)
-    
-    with tab3:
-        st.markdown("<div class='card'>", unsafe_allow_html=True)
-        st.info("📝 PDF generation requires reportlab library. Use CSV/Excel for now.")
-        st.markdown("</div>", unsafe_allow_html=True)
-    
-    with tab4:
-        st.markdown("<div class='card'>", unsafe_allow_html=True)
-        
-        total = len(my_tasks)
-        completed = len(my_tasks[my_tasks["status"] == "Completed"])
-        pending = total - completed
-        rate = (completed / total * 100) if total > 0 else 0
-        
-        summary_text = f"""
-ASSAN PRODUCTIVITY SUMMARY
-
-User: {st.session_state.current_user}
-Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}
-
-═══════════════════════════════
-
-📊 STATISTICS:
-• Total Tasks: {total}
-• Completed: {completed}
-• Pending: {pending}
-• Completion Rate: {rate:.1f}%
-
-═══════════════════════════════
-
-Copy this summary and email it!
-        """
-        
-        st.text_area("Email Summary", summary_text, height=300)
-        
-        st.markdown("</div>", unsafe_allow_html=True)
-
-# ---------- REMINDERS ----------
-def show_reminders_section():
-    my_tasks = get_my_tasks()
-    pending = my_tasks[my_tasks["status"] == "Pending"]
-    
-    urgent_tasks = []
-    
-    for _, task in pending.iterrows():
-        if not pd.isna(task["deadline"]):
-            diff = (task["deadline"] - pd.Timestamp.now()).total_seconds()
-            
-            if diff <= 0:
-                urgent_tasks.append(("🔴 OVERDUE", task))
-            elif diff <= 3600:
-                urgent_tasks.append(("🟠 URGENT", task))
-    
-    if urgent_tasks:
-        st.markdown("### 🔔 Urgent Reminders")
-        for label, task in urgent_tasks[:5]:
-            col1, col2, col3 = st.columns([3, 1, 1])
-            col1.error(f"{label}: {task['task']}")
-            col2.write(time_left_str(task['deadline']))
-            if col3.button("✅", key=f"remind_{task['id']}"):
-                complete_task(int(task['id']))
-                st.rerun()
-
-# ---------- SETTINGS ----------
-def show_settings():
-    st.title("⚙️ Settings")
-    
-    tab1, tab2 = st.tabs(["User Info", "Data Management"])
-    
-    with tab1:
-        st.markdown("### 👤 User Information")
-        
-        my_tasks = get_my_tasks()
-        
-        st.markdown(f"""
-        <div class='card'>
-            <p><strong>Username:</strong> {st.session_state.current_user}</p>
-            <p><strong>Total Tasks:</strong> {len(my_tasks)}</p>
-            <p><strong>Completed:</strong> {len(my_tasks[my_tasks['status'] == 'Completed'])}</p>
-            <p><strong>Active Habits:</strong> {len(st.session_state.df_habits[st.session_state.df_habits['active'] == True])}</p>
-            <p><strong>Team Members:</strong> {len(st.session_state.df_users)}</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with tab2:
-        st.markdown("### 📁 Data Management")
-        
-        st.markdown("<div class='card'>", unsafe_allow_html=True)
-        
-        import glob
-        export_files = []
-        for pattern in ['export_*.csv', 'export_*.xlsx', 'report_*.pdf']:
-            export_files.extend(glob.glob(pattern))
-        
-        if export_files:
-            st.write("**Export Files:**")
-            for file in export_files:
-                st.write(f"📄 {file}")
-        else:
-            st.info("No export files yet")
-        
-        st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
-        
-        if st.button("💾 Save All Data", type="primary"):
-            save_data()
-            st.success("✅ All data saved!")
-        
-        st.markdown("</div>", unsafe_allow_html=True)
-
-# ---------- MAIN ----------
-def main():
-    if st.session_state.df_tasks.empty and os.path.exists(DATA_FILE):
-        load_data()
-    
-    if st.session_state.current_user is None:
-        show_login()
-    else:
-        show_main_app()
-
-if __name__ == "__main__":
-    main()# ==============================================
-# ASSAN - FIREBASE STUDIO DARK THEME
-# Complete Productivity App with Modern UI
+# assan1_app.py
+# ==============================================
+# ASSAN - STREAMLIT PORT OF COMPLETE PRODUCTIVITY APP
+# Full Implementation with UI styled like Firebase Studio
 # ==============================================
 
-import streamlit as st
-import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta
-import time
 import os
-from sklearn.linear_model import LogisticRegression
-import matplotlib.pyplot as plt
-import warnings
 import io
+import time
+import threading
+import queue
+from datetime import datetime, timedelta
+import numpy as np
+import pandas as pd
+import pickle
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+from sklearn.linear_model import LogisticRegression
+import warnings
 warnings.filterwarnings('ignore')
 
-# ---------- PAGE CONFIG ----------
-st.set_page_config(
-    page_title="Assan - Productivity Studio",
-    page_icon="🎯",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+# Optional TensorFlow import - safe fallback if missing
+try:
+    import tensorflow as tf
+    from tensorflow.keras.models import Sequential
+    from tensorflow.keras.layers import Dense
+    TF_AVAILABLE = True
+except Exception:
+    TF_AVAILABLE = False
 
-# ---------- FIREBASE STUDIO DARK THEME CSS ----------
-st.markdown("""
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-    
-    /* === GLOBAL STYLES === */
-    * {
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
-    }
-    
-    /* === MAIN BACKGROUND - Firebase Studio Dark Gradient === */
-    .stApp {
-        background: linear-gradient(135deg, #0F0F1A 0%, #15161F 40%, #1E1F2B 100%) !important;
-        background-attachment: fixed;
-    }
-    
-    /* === MAIN CONTENT CONTAINER === */
-    .main .block-container {
-        background: transparent;
-        padding: 2rem 3rem;
-        max-width: 1400px;
-        margin: 0 auto;
-    }
-    
-    /* === SIDEBAR === */
-    [data-testid="stSidebar"] {
-        background: rgba(255, 255, 255, 0.03) !important;
-        backdrop-filter: blur(20px);
-        border-right: 1px solid rgba(255, 255, 255, 0.08);
-    }
-    
-    [data-testid="stSidebar"] * {
-        color: #F4F4F9 !important;
-    }
-    
-    [data-testid="stSidebar"] [data-testid="stMetricValue"] {
-        color: #FFFFFF !important;
-        font-size: 1.8rem !important;
-        font-weight: 700 !important;
-    }
-    
-    [data-testid="stSidebar"] [data-testid="stMetricLabel"] {
-        color: #C9C9D1 !important;
-        font-size: 0.85rem !important;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-    }
-    
-    /* === HEADINGS === */
-    h1 {
-        color: #F4F4F9 !important;
-        font-weight: 800 !important;
-        font-size: 32px !important;
-        margin-bottom: 2rem !important;
-        letter-spacing: -0.02em;
-        text-shadow: 0 0 30px rgba(76, 110, 245, 0.3);
-    }
-    
-    h2 {
-        color: #F4F4F9 !important;
-        font-weight: 700 !important;
-        font-size: 22px !important;
-        margin-top: 2rem !important;
-        margin-bottom: 1rem !important;
-    }
-    
-    h3 {
-        color: #FFFFFF !important;
-        font-weight: 600 !important;
-        font-size: 20px !important;
-    }
-    
-    /* === TEXT COLORS === */
-    p, span, div, label {
-        color: #FFFFFF !important;
-        font-size: 16px;
-    }
-    
-    .stMarkdown {
-        color: #FFFFFF !important;
-    }
-    
-    /* === BUTTONS - Firebase Studio Style === */
-    .stButton > button {
-        background: linear-gradient(90deg, #4C6EF5, #5C7CFA) !important;
-        color: #FFFFFF !important;
-        border: none !important;
-        border-radius: 12px !important;
-        padding: 0.75rem 1.5rem !important;
-        font-weight: 600 !important;
-        font-size: 16px !important;
-        letter-spacing: 0.025em !important;
-        transition: all 0.3s ease !important;
-        box-shadow: 0 4px 20px rgba(76, 110, 245, 0.3) !important;
-        text-transform: none !important;
-    }
-    
-    .stButton > button:hover {
-        background: linear-gradient(90deg, #5C7CFA, #6C8CFB) !important;
-        transform: translateY(-2px) !important;
-        box-shadow: 0 6px 30px rgba(76, 110, 245, 0.5) !important;
-    }
-    
-    .stButton > button:active {
-        transform: translateY(0px) !important;
-    }
-    
-    /* === FORM SUBMIT BUTTONS === */
-    .stFormSubmitButton > button {
-        background: linear-gradient(90deg, #4C6EF5, #5C7CFA) !important;
-        color: #FFFFFF !important;
-        border: none !important;
-        border-radius: 12px !important;
-        padding: 0.75rem 2rem !important;
-        font-weight: 600 !important;
-        font-size: 16px !important;
-        box-shadow: 0 4px 20px rgba(76, 110, 245, 0.3) !important;
-        transition: all 0.3s ease !important;
-    }
-    
-    .stFormSubmitButton > button:hover {
-        background: linear-gradient(90deg, #5C7CFA, #6C8CFB) !important;
-        transform: translateY(-2px) !important;
-        box-shadow: 0 6px 30px rgba(76, 110, 245, 0.5) !important;
-    }
-    
-    /* === INPUT FIELDS === */
-    .stTextInput > div > div > input,
-    .stTextArea > div > div > textarea,
-    .stSelectbox > div > div > select,
-    .stDateInput > div > div > input,
-    .stTimeInput > div > div > input {
-        background: #1C1C28 !important;
-        border: 1px solid #2A2A3A !important;
-        border-radius: 10px !important;
-        color: #FFFFFF !important;
-        padding: 0.75rem 1rem !important;
-        font-size: 16px !important;
-        transition: all 0.3s ease !important;
-    }
-    
-    .stTextInput > div > div > input:focus,
-    .stTextArea > div > div > textarea:focus,
-    .stSelectbox > div > div > select:focus {
-        border-color: #4C6EF5 !important;
-        box-shadow: 0 0 0 3px rgba(76, 110, 245, 0.2) !important;
-        outline: none !important;
-    }
-    
-    .stTextInput > div > div > input::placeholder,
-    .stTextArea > div > div > textarea::placeholder {
-        color: #C9C9D1 !important;
-    }
-    
-    /* === SELECTBOX === */
-    [data-baseweb="select"] {
-        background: #1C1C28 !important;
-        border-radius: 10px !important;
-    }
-    
-    [data-baseweb="select"] > div {
-        background: #1C1C28 !important;
-        border: 1px solid #2A2A3A !important;
-        color: #FFFFFF !important;
-    }
-    
-    /* === LABELS === */
-    .stTextInput > label,
-    .stTextArea > label,
-    .stSelectbox > label,
-    .stDateInput > label,
-    .stTimeInput > label {
-        color: #C9C9D1 !important;
-        font-weight: 500 !important;
-        font-size: 15px !important;
-        margin-bottom: 0.5rem !important;
-    }
-    
-    /* === CARDS / CONTAINERS === */
-    .card {
-        background: rgba(255, 255, 255, 0.05);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 16px;
-        padding: 1.5rem;
-        margin: 1rem 0;
-        backdrop-filter: blur(10px);
-        transition: all 0.3s ease;
-    }
-    
-    .card:hover {
-        background: rgba(255, 255, 255, 0.08);
-        border-color: rgba(255, 255, 255, 0.12);
-        transform: translateY(-2px);
-        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
-    }
-    
-    /* === TASK CARDS === */
-    .task-card {
-        background: rgba(255, 255, 255, 0.05);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 12px;
-        padding: 1.25rem;
-        margin: 0.75rem 0;
-        backdrop-filter: blur(10px);
-        transition: all 0.3s ease;
-    }
-    
-    .task-card:hover {
-        background: rgba(76, 110, 245, 0.1);
-        border-color: rgba(76, 110, 245, 0.3);
-        transform: translateX(4px);
-    }
-    
-    /* === METRICS === */
-    [data-testid="stMetricValue"] {
-        font-size: 2rem !important;
-        font-weight: 700 !important;
-        color: #FFFFFF !important;
-    }
-    
-    [data-testid="stMetricLabel"] {
-        font-size: 15px !important;
-        font-weight: 600 !important;
-        color: #C9C9D1 !important;
-        text-transform: uppercase !important;
-        letter-spacing: 0.05em !important;
-    }
-    
-    /* === TABS === */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
-        background: transparent;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-    }
-    
-    .stTabs [data-baseweb="tab"] {
-        background: transparent;
-        border-radius: 10px 10px 0 0;
-        padding: 0.75rem 1.5rem;
-        font-weight: 600;
-        font-size: 16px;
-        color: #C9C9D1;
-        border: none;
-        transition: all 0.3s ease;
-    }
-    
-    .stTabs [data-baseweb="tab"]:hover {
-        background: rgba(255, 255, 255, 0.05);
-        color: #FFFFFF;
-    }
-    
-    .stTabs [aria-selected="true"] {
-        background: linear-gradient(90deg, #4C6EF5, #5C7CFA);
-        color: #FFFFFF !important;
-    }
-    
-    /* === EXPANDER === */
-    .streamlit-expanderHeader {
-        background: rgba(255, 255, 255, 0.05) !important;
-        border-radius: 12px !important;
-        border: 1px solid rgba(255, 255, 255, 0.08) !important;
-        font-weight: 600 !important;
-        color: #FFFFFF !important;
-        padding: 1rem !important;
-        font-size: 16px !important;
-    }
-    
-    .streamlit-expanderHeader:hover {
-        background: rgba(255, 255, 255, 0.08) !important;
-        border-color: rgba(76, 110, 245, 0.3) !important;
-    }
-    
-    .streamlit-expanderContent {
-        background: rgba(255, 255, 255, 0.03);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 0 0 12px 12px;
-        padding: 1rem;
-    }
-    
-    /* === DIVIDER === */
-    hr {
-        margin: 2rem 0 !important;
-        border: none !important;
-        height: 1px !important;
-        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent) !important;
-    }
-    
-    /* === ALERTS === */
-    .stAlert {
-        background: rgba(255, 255, 255, 0.05) !important;
-        border: 1px solid rgba(255, 255, 255, 0.08) !important;
-        border-radius: 12px !important;
-        border-left-width: 4px !important;
-        padding: 1rem 1.25rem !important;
-        font-weight: 500 !important;
-        color: #FFFFFF !important;
-    }
-    
-    /* === SUCCESS ALERT === */
-    .stSuccess {
-        background: rgba(72, 187, 120, 0.1) !important;
-        border-left-color: #48BB78 !important;
-    }
-    
-    /* === ERROR ALERT === */
-    .stError {
-        background: rgba(245, 101, 101, 0.1) !important;
-        border-left-color: #F56565 !important;
-    }
-    
-    /* === WARNING ALERT === */
-    .stWarning {
-        background: rgba(237, 137, 54, 0.1) !important;
-        border-left-color: #ED8936 !important;
-    }
-    
-    /* === INFO ALERT === */
-    .stInfo {
-        background: rgba(76, 110, 245, 0.1) !important;
-        border-left-color: #4C6EF5 !important;
-    }
-    
-    /* === DATAFRAME === */
-    .dataframe {
-        background: rgba(255, 255, 255, 0.05) !important;
-        border: 1px solid rgba(255, 255, 255, 0.08) !important;
-        border-radius: 12px !important;
-        overflow: hidden !important;
-    }
-    
-    .dataframe th {
-        background: rgba(76, 110, 245, 0.2) !important;
-        color: #FFFFFF !important;
-        font-weight: 600 !important;
-        padding: 0.75rem !important;
-    }
-    
-    .dataframe td {
-        background: rgba(255, 255, 255, 0.03) !important;
-        color: #FFFFFF !important;
-        padding: 0.75rem !important;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
-    }
-    
-    /* === PROGRESS BAR === */
-    .stProgress > div > div > div {
-        background: linear-gradient(90deg, #4C6EF5, #5C7CFA) !important;
-        border-radius: 10px !important;
-    }
-    
-    .stProgress > div > div {
-        background: rgba(255, 255, 255, 0.1) !important;
-        border-radius: 10px !important;
-    }
-    
-    /* === RADIO BUTTONS === */
-    .stRadio > label {
-        font-weight: 600 !important;
-        color: #F4F4F9 !important;
-        font-size: 16px !important;
-    }
-    
-    .stRadio > div {
-        background: transparent !important;
-    }
-    
-    .stRadio [role="radiogroup"] label {
-        background: rgba(255, 255, 255, 0.05) !important;
-        border: 1px solid rgba(255, 255, 255, 0.08) !important;
-        border-radius: 10px !important;
-        padding: 0.75rem 1rem !important;
-        margin: 0.25rem 0 !important;
-        transition: all 0.3s ease !important;
-        color: #FFFFFF !important;
-    }
-    
-    .stRadio [role="radiogroup"] label:hover {
-        background: rgba(76, 110, 245, 0.1) !important;
-        border-color: rgba(76, 110, 245, 0.3) !important;
-    }
-    
-    /* === DOWNLOAD BUTTON === */
-    .stDownloadButton > button {
-        background: linear-gradient(90deg, #48BB78, #38A169) !important;
-        color: #FFFFFF !important;
-        border-radius: 12px !important;
-        font-weight: 600 !important;
-        font-size: 16px !important;
-        box-shadow: 0 4px 20px rgba(72, 187, 120, 0.3) !important;
-        transition: all 0.3s ease !important;
-    }
-    
-    .stDownloadButton > button:hover {
-        background: linear-gradient(90deg, #38A169, #2F855A) !important;
-        transform: translateY(-2px) !important;
-        box-shadow: 0 6px 30px rgba(72, 187, 120, 0.5) !important;
-    }
-    
-    /* === CAPTION TEXT === */
-    .caption {
-        color: #C9C9D1 !important;
-        font-size: 15px !important;
-    }
-    
-    /* === SPINNER === */
-    .stSpinner > div {
-        border-top-color: #4C6EF5 !important;
-    }
-    
-    /* === NAVBAR STYLE === */
-    .navbar {
-        background: rgba(255, 255, 255, 0.03);
-        backdrop-filter: blur(20px);
-        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-        padding: 1.5rem 3rem;
-        margin: -2rem -3rem 2rem -3rem;
-        border-radius: 0;
-    }
-    
-    .navbar-title {
-        font-size: 28px;
-        font-weight: 800;
-        color: #F4F4F9;
-        text-shadow: 0 0 30px rgba(76, 110, 245, 0.4);
-        display: flex;
-        align-items: center;
-        gap: 1rem;
-    }
-    
-    /* === SECTION DIVIDER === */
-    .section-divider {
-        height: 1px;
-        background: linear-gradient(90deg, transparent, rgba(76, 110, 245, 0.3), transparent);
-        margin: 2rem 0;
-    }
-    
-    /* === HIDE STREAMLIT BRANDING === */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-    
-    /* === SCROLLBAR === */
-    ::-webkit-scrollbar {
-        width: 10px;
-        height: 10px;
-    }
-    
-    ::-webkit-scrollbar-track {
-        background: rgba(255, 255, 255, 0.03);
-    }
-    
-    ::-webkit-scrollbar-thumb {
-        background: rgba(76, 110, 245, 0.5);
-        border-radius: 10px;
-    }
-    
-    ::-webkit-scrollbar-thumb:hover {
-        background: rgba(76, 110, 245, 0.7);
-    }
-</style>
-""", unsafe_allow_html=True)
+# Streamlit imports
+import streamlit as st
+from streamlit.elements import legacy_data_frame  # no-op, just to help linters
 
 # ---------- FILES ----------
+USER_FILE = "username.txt"
 DATA_FILE = "tasks.csv"
+REMINDER_LOG = "reminders.csv"
 HABITS_FILE = "habits.csv"
 USERS_FILE = "users.csv"
 COMMENTS_FILE = "comments.csv"
-REMINDER_LOG = "reminders.csv"
-MODEL_FILE = "model.pkl"
+MODEL_FILE = "model.h5"
+SCALER_FILE = "scaler.pkl"
+
+# ---------- APP STYLING (Firebase-like) ----------
+FIREBASE_COLORS = {
+    "blue": "#4C6EF5",
+    "blue2": "#5C7CFA",
+    "bg1": "#0F0F1A",
+    "bg2": "#15161F",
+    "bg3": "#1E1F2B",
+    "muted": "#C9C9D1",
+    "bright": "#F4F4F9"
+}
+
+st.set_page_config(page_title="ASSAN — Productivity", layout="wide", initial_sidebar_state="expanded")
+
+# Inject custom CSS: fonts, background, cards, buttons
+st.markdown(
+    f"""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+
+    html, body, [class*="css"]  {{
+        font-family: 'Inter', sans-serif;
+        color: {FIREBASE_COLORS['bright']};
+        background: linear-gradient(135deg, {FIREBASE_COLORS['bg1']} 0%, {FIREBASE_COLORS['bg2']} 40%, {FIREBASE_COLORS['bg3']} 100%);
+    }}
+
+    .stApp {{
+        background: linear-gradient(135deg, {FIREBASE_COLORS['bg1']} 0%, {FIREBASE_COLORS['bg2']} 40%, {FIREBASE_COLORS['bg3']} 100%);
+    }}
+
+    /* Card */
+    .card {{
+        background: rgba(255,255,255,0.03);
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 12px;
+        padding: 18px;
+        box-shadow: 0 4px 14px rgba(0,0,0,0.35);
+    }}
+
+    /* Heading */
+    .app-title {{
+        font-size: 28px;
+        font-weight: 700;
+        color: {FIREBASE_COLORS['bright']};
+        margin-bottom: 6px;
+        text-shadow: 0 2px 12px rgba(76,110,245,0.08);
+    }}
+
+    .app-sub {{
+        color: {FIREBASE_COLORS['muted']};
+        margin-bottom: 12px;
+    }}
+
+    /* Buttons */
+    .btn {{
+        background: linear-gradient(90deg, {FIREBASE_COLORS['blue']}, {FIREBASE_COLORS['blue2']});
+        color: white !important;
+        padding: 8px 14px;
+        border-radius: 10px;
+        border: none;
+        font-weight: 600;
+        box-shadow: 0 6px 18px rgba(76,110,245,0.14);
+    }}
+
+    .btn:active {{ transform: translateY(1px); }}
+
+    /* Inputs */
+    .stTextInput>div>div>input, .stTextArea>div>div>textarea, .stSelectbox>div>div>div>div {{
+        background: #141421;
+        border-radius: 10px;
+        color: {FIREBASE_COLORS['bright']};
+        border: 1px solid rgba(255,255,255,0.06);
+        padding: 10px;
+    }}
+
+    /* Table headers */
+    .dataframe thead th {{
+        background: rgba(255,255,255,0.03);
+        color: {FIREBASE_COLORS['bright']};
+    }}
+
+    /* Small muted text */
+    .muted-small {{ color: {FIREBASE_COLORS['muted']}; font-size:13px; }}
+
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 # ---------- CATEGORIES ----------
 CATEGORIES = {
     "Work": {"icon": "🏢", "color": "#4C6EF5"},
-    "Personal": {"icon": "🏠", "color": "#48BB78"},
-    "Learning": {"icon": "🎓", "color": "#9F7AEA"},
-    "Health": {"icon": "💪", "color": "#F56565"},
-    "Creative": {"icon": "🎨", "color": "#ED8936"},
-    "Other": {"icon": "📌", "color": "#5C7CFA"}
+    "Personal": {"icon": "🏠", "color": "#34A853"},
+    "Learning": {"icon": "🎓", "color": "#7C4DFF"},
+    "Health": {"icon": "💪", "color": "#EA4335"},
+    "Creative": {"icon": "🎨", "color": "#FF69B4"},
+    "Other": {"icon": "📌", "color": "#C0C0C0"},
 }
 
-# ---------- INITIALIZE SESSION STATE ----------
-def init_session_state():
-    defaults = {
-        'current_user': None,
-        'df_tasks': pd.DataFrame(),
-        'df_habits': pd.DataFrame(),
-        'df_users': pd.DataFrame(),
-        'df_comments': pd.DataFrame(),
-        'df_reminders': pd.DataFrame(),
-        'task_id_counter': 1,
-        'habit_id_counter': 1,
-        'comment_id_counter': 1,
-        'trained_model': None,
-        'page': 'dashboard'
-    }
-    for key, value in defaults.items():
-        if key not in st.session_state:
-            st.session_state[key] = value
+# ---------- GLOBALS ----------
+if "reminder_queue" not in st.session_state:
+    st.session_state.reminder_queue = queue.Queue()
+if "shown_reminders" not in st.session_state:
+    st.session_state.shown_reminders = set()
+if "reminder_thread" not in st.session_state:
+    st.session_state.reminder_thread = None
+if "stop_reminder_thread" not in st.session_state:
+    st.session_state.stop_reminder_thread = threading.Event()
 
-init_session_state()
+# ---------- UTILITIES ----------
+def now_dt():
+    return datetime.now()
 
-# ---------- LOAD DATA ----------
-def load_data():
-    if os.path.exists(USERS_FILE):
-        st.session_state.df_users = pd.read_csv(USERS_FILE)
-        st.session_state.df_users["added_at"] = pd.to_datetime(st.session_state.df_users["added_at"], errors='coerce')
-    else:
-        st.session_state.df_users = pd.DataFrame(columns=["username", "role", "added_at", "added_by"])
-    
-    if os.path.exists(DATA_FILE):
-        st.session_state.df_tasks = pd.read_csv(DATA_FILE, low_memory=False)
-        for c in ["created_at", "completed_at", "deadline"]:
-            if c in st.session_state.df_tasks.columns:
-                st.session_state.df_tasks[c] = pd.to_datetime(st.session_state.df_tasks[c], errors='coerce')
-        for col, default in [("category", "Other"), ("tags", ""), ("ai_prediction", 0.0), 
-                            ("habit_id", np.nan), ("recurrence", "none"), ("assigned_to", ""), 
-                            ("created_by", ""), ("shared", False), ("deadline", pd.NaT)]:
-            if col not in st.session_state.df_tasks.columns:
-                st.session_state.df_tasks[col] = default
-        if not st.session_state.df_tasks.empty:
-            st.session_state.task_id_counter = int(st.session_state.df_tasks["id"].max()) + 1
-    else:
-        st.session_state.df_tasks = pd.DataFrame(columns=[
-            "id","task","priority","status","created_at","completed_at","deadline",
-            "ai_prediction","category","tags","habit_id","recurrence","assigned_to","created_by","shared"
-        ])
-    
-    if os.path.exists(HABITS_FILE):
-        st.session_state.df_habits = pd.read_csv(HABITS_FILE)
-        for c in ["created_at", "last_completed"]:
-            if c in st.session_state.df_habits.columns:
-                st.session_state.df_habits[c] = pd.to_datetime(st.session_state.df_habits[c], errors='coerce')
-        if not st.session_state.df_habits.empty:
-            st.session_state.habit_id_counter = int(st.session_state.df_habits["habit_id"].max()) + 1
-    else:
-        st.session_state.df_habits = pd.DataFrame(columns=[
-            "habit_id","habit_name","recurrence","category","active","created_at","last_completed","total_completions"
-        ])
-    
-    if os.path.exists(COMMENTS_FILE):
-        st.session_state.df_comments = pd.read_csv(COMMENTS_FILE)
-        st.session_state.df_comments["timestamp"] = pd.to_datetime(st.session_state.df_comments["timestamp"], errors='coerce')
-        if not st.session_state.df_comments.empty:
-            st.session_state.comment_id_counter = int(st.session_state.df_comments["comment_id"].max()) + 1
-    else:
-        st.session_state.df_comments = pd.DataFrame(columns=["comment_id", "task_id", "username", "comment", "timestamp"])
-    
-    if os.path.exists(REMINDER_LOG):
-        st.session_state.df_reminders = pd.read_csv(REMINDER_LOG)
-        st.session_state.df_reminders["timestamp"] = pd.to_datetime(st.session_state.df_reminders["timestamp"], errors='coerce')
-    else:
-        st.session_state.df_reminders = pd.DataFrame(columns=["task_id", "task_name", "alert_type", "timestamp"])
-
-# ---------- SAVE DATA ----------
-def save_data():
-    st.session_state.df_tasks.to_csv(DATA_FILE, index=False)
-    st.session_state.df_habits.to_csv(HABITS_FILE, index=False)
-    st.session_state.df_users.to_csv(USERS_FILE, index=False)
-    st.session_state.df_comments.to_csv(COMMENTS_FILE, index=False)
-    if not st.session_state.df_reminders.empty:
-        st.session_state.df_reminders.to_csv(REMINDER_LOG, index=False)
-
-# ---------- UTILITY FUNCTIONS ----------
 def parse_deadline_input(inp):
-    if not inp or pd.isna(inp):
+    s = str(inp).strip()
+    if not s:
         return pd.NaT
-    try:
-        return pd.to_datetime(inp)
-    except:
-        return pd.NaT
+    fmts = ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d", "%H:%M:%S", "%H:%M"]
+    for f in fmts:
+        try:
+            dt = datetime.strptime(s, f)
+            if f in ("%H:%M", "%H:%M:%S"):
+                today = datetime.now().date()
+                dt = datetime.combine(today, dt.time())
+            elif f == "%Y-%m-%d":
+                dt = datetime.combine(dt.date(), datetime.max.time()).replace(microsecond=0)
+            return pd.Timestamp(dt)
+        except Exception:
+            continue
+    parsed = pd.to_datetime(s, errors='coerce')
+    return parsed if not pd.isna(parsed) else pd.NaT
 
-def time_left_str(deadline_ts):
+def time_left_parts(deadline_ts):
     if pd.isna(deadline_ts):
-        return "No deadline"
-    now = datetime.now()
+        return ("No deadline", None)
+    now = now_dt()
     dl = deadline_ts.to_pydatetime() if isinstance(deadline_ts, pd.Timestamp) else deadline_ts
     diff = dl - now
     secs = int(diff.total_seconds())
     if secs <= 0:
-        return "⚠️ OVERDUE"
+        return ("OVERDUE", secs)
     days, rem = divmod(secs, 86400)
     hours, rem = divmod(rem, 3600)
-    minutes, _ = divmod(rem, 60)
+    minutes, seconds = divmod(rem, 60)
     parts = []
     if days > 0: parts.append(f"{days}d")
     if hours > 0: parts.append(f"{hours}h")
     if minutes > 0: parts.append(f"{minutes}m")
-    return " ".join(parts) if parts else "< 1m"
+    parts.append(f"{seconds}s")
+    return (" ".join(parts), secs)
 
-def predict_prob(row):
-    if st.session_state.trained_model is not None:
+def parse_tags(tag_string):
+    if pd.isna(tag_string) or str(tag_string).strip() == "":
+        return []
+    return [t.strip().lower() for t in str(tag_string).split(",") if t.strip()]
+
+def format_tags(tags_list):
+    if not tags_list:
+        return ""
+    return "[" + ", ".join(tags_list) + "]"
+
+def get_category_display(category):
+    if category not in CATEGORIES:
+        category = "Other"
+    cat_info = CATEGORIES[category]
+    return f"{cat_info['icon']} {category}"
+
+# ---------- DATA LOAD / SAVE ----------
+@st.cache_data(ttl=600)
+def safe_read_csv(path, **kwargs):
+    if os.path.exists(path):
         try:
-            priority_num = 1 if str(row.get("priority","N")).upper()=="Y" else 0
-            task_len = len(str(row.get("task", "")))
-            X = np.array([[priority_num, task_len]])
-            return float(st.session_state.trained_model.predict_proba(X)[0][1])
-        except:
-            pass
+            return pd.read_csv(path, **kwargs)
+        except Exception:
+            return pd.DataFrame()
+    else:
+        return pd.DataFrame()
+
+def load_dataframes():
+    # Users
+    df_users = safe_read_csv(USERS_FILE)
+    if df_users.empty:
+        df_users = pd.DataFrame(columns=["username","role","added_at","added_by"])
+    else:
+        if "added_at" in df_users.columns:
+            df_users["added_at"] = pd.to_datetime(df_users["added_at"], errors='coerce')
+
+    # Tasks
+    df_tasks = safe_read_csv(DATA_FILE, low_memory=False)
+    if df_tasks.empty:
+        df_tasks = pd.DataFrame(columns=["id","task","priority","status","created_at","completed_at","deadline","ai_prediction","category","tags","habit_id","recurrence","assigned_to","created_by","shared"])
+    else:
+        for c in ["created_at","completed_at","deadline"]:
+            if c in df_tasks.columns:
+                df_tasks[c] = pd.to_datetime(df_tasks[c], errors='coerce')
+        # enforce columns
+        for col, default in [("category","Other"),("tags",""),("ai_prediction", np.nan),("habit_id", np.nan),("recurrence","none"),("assigned_to", ""),("created_by",""),("shared", False)]:
+            if col not in df_tasks.columns:
+                df_tasks[col] = default
+
+    # Habits
+    df_habits = safe_read_csv(HABITS_FILE)
+    if df_habits.empty:
+        df_habits = pd.DataFrame(columns=["habit_id","habit_name","recurrence","category","active","created_at","last_completed","total_completions"])
+    else:
+        for c in ["created_at","last_completed"]:
+            if c in df_habits.columns:
+                df_habits[c] = pd.to_datetime(df_habits[c], errors='coerce')
+
+    # Comments
+    df_comments = safe_read_csv(COMMENTS_FILE)
+    if df_comments.empty:
+        df_comments = pd.DataFrame(columns=["comment_id","task_id","username","comment","timestamp"])
+    else:
+        if "timestamp" in df_comments.columns:
+            df_comments["timestamp"] = pd.to_datetime(df_comments["timestamp"], errors='coerce')
+
+    # Reminders log
+    df_reminders = safe_read_csv(REMINDER_LOG)
+    if df_reminders.empty:
+        df_reminders = pd.DataFrame(columns=["task_id","task_name","alert_type","timestamp"])
+    else:
+        if "timestamp" in df_reminders.columns:
+            df_reminders["timestamp"] = pd.to_datetime(df_reminders["timestamp"], errors='coerce')
+
+    return df_users, df_tasks, df_habits, df_comments, df_reminders
+
+def save_all(df_tasks, df_habits, df_users, df_comments, df_reminders):
+    df_tasks.to_csv(DATA_FILE, index=False)
+    df_habits.to_csv(HABITS_FILE, index=False)
+    df_users.to_csv(USERS_FILE, index=False)
+    df_comments.to_csv(COMMENTS_FILE, index=False)
+    df_reminders.to_csv(REMINDER_LOG, index=False)
+
+# Load into session_state if not present
+if "df_users" not in st.session_state:
+    u,t,h,c,r = load_dataframes()
+    st.session_state.df_users = u
+    st.session_state.df_tasks = t
+    st.session_state.df_habits = h
+    st.session_state.df_comments = c
+    st.session_state.df_reminders = r
+    st.session_state.task_id_counter = int(t["id"].max()) + 1 if (not t.empty and "id" in t.columns and pd.notna(t["id"].max())) else 1
+    st.session_state.habit_id_counter = int(h["habit_id"].max()) + 1 if (not h.empty and "habit_id" in h.columns and pd.notna(h["habit_id"].max())) else 1
+    st.session_state.comment_id_counter = int(c["comment_id"].max()) + 1 if (not c.empty and "comment_id" in c.columns and pd.notna(c["comment_id"].max())) else 1
+
+# ---------- ML helpers ----------
+def train_simple_model(df_tasks):
+    d = df_tasks.copy()
+    if d.empty or len(d) < 5:
+        return None
+    d["priority_num"] = d["priority"].map({"Y":1,"N":0}).fillna(0).astype(int)
+    d["task_len"] = d["task"].astype(str).apply(len)
+    d["completed"] = (d["status"]=="Completed").astype(int)
+    X = d[["priority_num","task_len"]]
+    y = d["completed"]
+    if len(y.unique()) < 2:
+        return None
+    model = LogisticRegression(max_iter=200)
+    model.fit(X, y)
+    return model
+
+def predict_prob_local(row):
+    # fallback simple heuristic
     return 0.8 if str(row.get("priority","N")).upper()=="Y" else 0.3
 
-def calculate_streak(habit_id):
-    if st.session_state.df_tasks.empty:
-        return 0
-    habit_tasks = st.session_state.df_tasks[
-        (st.session_state.df_tasks["habit_id"] == habit_id) & 
-        (st.session_state.df_tasks["status"] == "Completed")
-    ].sort_values("completed_at", ascending=False)
-    
-    if habit_tasks.empty:
-        return 0
-    
-    habit_info = st.session_state.df_habits[st.session_state.df_habits["habit_id"] == habit_id].iloc[0]
-    recurrence = habit_info["recurrence"]
-    streak = 0
-    expected_date = datetime.now().date()
-    
-    for _, task in habit_tasks.iterrows():
-        completed_date = task["completed_at"].date()
-        if recurrence == "daily":
-            if completed_date >= expected_date - timedelta(days=1):
-                streak += 1
-                expected_date = completed_date - timedelta(days=1)
-            else:
-                break
-        elif recurrence == "weekly":
-            if completed_date >= expected_date - timedelta(weeks=1):
-                streak += 1
-                expected_date = completed_date - timedelta(weeks=1)
-            else:
-                break
-    return streak
+# ---------- REMINDERS THREAD ----------
+def log_reminder(task_id, task_name, alert_type):
+    dfr = st.session_state.df_reminders
+    new = pd.DataFrame([{"task_id": int(task_id), "task_name": task_name, "alert_type": alert_type, "timestamp": pd.Timestamp.now()}])
+    st.session_state.df_reminders = pd.concat([dfr, new], ignore_index=True)
+    # Persist immediately
+    st.session_state.df_reminders.to_csv(REMINDER_LOG, index=False)
 
-def get_my_tasks():
-    return st.session_state.df_tasks[
-        st.session_state.df_tasks["assigned_to"] == st.session_state.current_user
-    ].copy()
+def check_reminders_background(stop_event):
+    while not stop_event.is_set():
+        try:
+            df_tasks = st.session_state.df_tasks
+            if not df_tasks.empty:
+                pending = df_tasks[(df_tasks["status"]=="Pending")]
+                for _, task in pending.iterrows():
+                    if pd.isna(task["deadline"]):
+                        continue
+                    task_id = int(task["id"])
+                    _, secs = time_left_parts(task["deadline"])
+                    if secs is None:
+                        continue
+                    reminder_key = None
+                    alert_type = None
+                    if secs <= 0:
+                        reminder_key = f"{task_id}_overdue"
+                        alert_type = "overdue"
+                    elif secs <= 900:
+                        reminder_key = f"{task_id}_urgent"
+                        alert_type = "urgent"
+                    elif secs <= 3600:
+                        reminder_key = f"{task_id}_warning"
+                        alert_type = "warning"
+                    if reminder_key and (reminder_key not in st.session_state.shown_reminders):
+                        st.session_state.reminder_queue.put({"task_id": task_id, "task_name": task["task"], "alert_type": alert_type})
+                        st.session_state.shown_reminders.add(reminder_key)
+                        log_reminder(task_id, task["task"], alert_type)
+            time.sleep(30)
+        except Exception:
+            time.sleep(30)
 
-# ---------- TASK OPERATIONS ----------
-def complete_task(task_id):
-    st.session_state.df_tasks.loc[st.session_state.df_tasks["id"] == task_id, "status"] = "Completed"
-    st.session_state.df_tasks.loc[st.session_state.df_tasks["id"] == task_id, "completed_at"] = pd.Timestamp.now()
-    
-    task = st.session_state.df_tasks[st.session_state.df_tasks["id"] == task_id].iloc[0]
-    if not pd.isna(task["habit_id"]):
-        habit_id = int(task["habit_id"])
-        st.session_state.df_habits.loc[st.session_state.df_habits["habit_id"] == habit_id, "total_completions"] += 1
-        st.session_state.df_habits.loc[st.session_state.df_habits["habit_id"] == habit_id, "last_completed"] = pd.Timestamp.now()
-        create_task_from_habit(habit_id, task["task"], task["recurrence"], task["category"])
-    
-    save_data()
+def start_reminder_system():
+    if st.session_state.reminder_thread is None or not st.session_state.reminder_thread.is_alive():
+        st.session_state.stop_reminder_thread.clear()
+        t = threading.Thread(target=check_reminders_background, args=(st.session_state.stop_reminder_thread,), daemon=True)
+        st.session_state.reminder_thread = t
+        t.start()
 
-def delete_task(task_id):
-    st.session_state.df_tasks = st.session_state.df_tasks[st.session_state.df_tasks["id"] != task_id]
-    save_data()
+def stop_reminder_system():
+    st.session_state.stop_reminder_thread.set()
+    if st.session_state.reminder_thread:
+        st.session_state.reminder_thread.join(timeout=1)
 
-def create_task_from_habit(habit_id, name, recurrence, category):
-    if recurrence == "daily":
-        deadline = datetime.now().replace(hour=23, minute=59)
-    elif recurrence == "weekly":
-        days = (6 - datetime.now().weekday()) % 7
-        deadline = (datetime.now() + timedelta(days=days)).replace(hour=23, minute=59)
+# Start reminder thread
+start_reminder_system()
+
+# ---------- UI: header & sidebar ----------
+def header():
+    st.markdown(
+        """
+        <div class="card">
+            <div style="display:flex; align-items:center; justify-content:space-between">
+                <div>
+                    <div class="app-title">ASSAN</div>
+                    <div class="app-sub">Personal and Team Productivity — Styled like Firebase Studio</div>
+                </div>
+                <div style="text-align:right">
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+with st.sidebar:
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
+    st.markdown("<h4 style='margin-bottom:6px'>Welcome to ASSAN</h4>", unsafe_allow_html=True)
+    # Username control (persist to file if changed)
+    if os.path.exists(USER_FILE):
+        try:
+            with open(USER_FILE,"r") as f:
+                stored_name = f.read().strip()
+        except Exception:
+            stored_name = ""
     else:
-        next_month = (datetime.now().replace(day=1) + timedelta(days=32)).replace(day=1)
-        deadline = next_month - timedelta(seconds=1)
-    
-    prob = predict_prob({"priority": "Y", "task": name})
-    
-    new_task = pd.DataFrame([{
-        "id": st.session_state.task_id_counter,
-        "task": name,
+        stored_name = ""
+    if "current_user" not in st.session_state:
+        st.session_state.current_user = stored_name or ""
+    name = st.text_input("Your name", value=st.session_state.current_user, key="ui_name")
+    if name and name != st.session_state.current_user:
+        st.session_state.current_user = name
+        try:
+            with open(USER_FILE, "w") as f:
+                f.write(name)
+        except Exception:
+            pass
+    st.markdown(f"<div class='muted-small'>Signed in as <b>{st.session_state.current_user or '—'}</b></div>", unsafe_allow_html=True)
+
+    st.markdown("---")
+    menu = st.selectbox("Menu", [
+        "Dashboard",
+        "My Tasks",
+        "Add Task",
+        "Habits",
+        "Team",
+        "Analytics",
+        "AI / Train",
+        "Exports",
+        "Reminders",
+        "Settings"
+    ])
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# ---------- CORE FEATURES (UI-backed) ----------
+def add_task_ui():
+    st.markdown("<div class='card'><h3>Add Task</h3>", unsafe_allow_html=True)
+    with st.form("add_task_form", clear_on_submit=True):
+        name = st.text_input("Task name")
+        pr = st.selectbox("Priority", ["N","Y"], index=0, format_func=lambda x: "High (Y)" if x=="Y" else "Normal (N)")
+        dl_date = st.date_input("Deadline date (optional)", value=None)
+        dl_time = st.time_input("Deadline time (optional)", value=None)
+        cats = list(CATEGORIES.keys())
+        cat = st.selectbox("Category", cats, index=cats.index("Other"))
+        tags = st.text_input("Tags (comma separated)")
+        submit = st.form_submit_button("Add task")
+        if submit:
+            dl_ts = pd.NaT
+            if dl_date and dl_time:
+                try:
+                    dt = datetime.combine(dl_date, dl_time)
+                    dl_ts = pd.Timestamp(dt)
+                except Exception:
+                    dl_ts = pd.NaT
+            # predict prob (heuristic)
+            prob = predict_prob_local({"priority":pr, "task":name, "deadline":dl_ts, "category":cat})
+            df = st.session_state.df_tasks
+            new = pd.DataFrame([{
+                "id": int(st.session_state.task_id_counter),
+                "task": name,
+                "priority": pr,
+                "status": "Pending",
+                "created_at": pd.Timestamp.now(),
+                "completed_at": pd.NaT,
+                "deadline": dl_ts,
+                "ai_prediction": round(prob*100,2),
+                "category": cat,
+                "tags": tags,
+                "habit_id": np.nan,
+                "recurrence": "none",
+                "assigned_to": st.session_state.current_user,
+                "created_by": st.session_state.current_user,
+                "shared": False
+            }])
+            st.session_state.df_tasks = pd.concat([df, new], ignore_index=True)
+            st.session_state.task_id_counter += 1
+            st.success(f"Added task: {name}")
+            # persist
+            st.session_state.df_tasks.to_csv(DATA_FILE, index=False)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+def view_tasks_ui():
+    st.markdown("<div class='card'><h3>My Tasks</h3>", unsafe_allow_html=True)
+    my = st.session_state.df_tasks.copy()
+    if my.empty:
+        st.info("No tasks yet.")
+        st.markdown("</div>", unsafe_allow_html=True)
+        return
+    # Filter by assigned user
+    my = my[my["assigned_to"] == st.session_state.current_user] if st.session_state.current_user else my
+    # Show interactive table with action buttons per row
+    my_display = my[["id","task","status","priority","category","tags","deadline","ai_prediction"]].copy()
+    my_display["deadline"] = my_display["deadline"].dt.strftime("%Y-%m-%d %H:%M").fillna("")
+    my_display["AI %"] = my_display["ai_prediction"].round(0).astype(str) + "%"
+    my_display = my_display.rename(columns={"id":"ID","task":"Task","status":"Status","priority":"Pri","category":"Category","tags":"Tags","deadline":"Deadline"})
+    st.dataframe(my_display.reset_index(drop=True), use_container_width=True)
+    # Actions
+    st.markdown("---")
+    cols = st.columns([1,1,1,2])
+    with cols[0]:
+        tid = st.number_input("Task ID to complete", min_value=0, step=1, value=0)
+        if st.button("Mark Completed"):
+            if tid in st.session_state.df_tasks["id"].values:
+                st.session_state.df_tasks.loc[st.session_state.df_tasks["id"]==tid, "status"] = "Completed"
+                st.session_state.df_tasks.loc[st.session_state.df_tasks["id"]==tid, "completed_at"] = pd.Timestamp.now()
+                # habit handling
+                task_row = st.session_state.df_tasks[st.session_state.df_tasks["id"]==tid].iloc[0]
+                if not pd.isna(task_row.get("habit_id", np.nan)):
+                    hid = int(task_row["habit_id"])
+                    st.session_state.df_habits.loc[st.session_state.df_habits["habit_id"]==hid, "total_completions"] = st.session_state.df_habits.loc[st.session_state.df_habits["habit_id"]==hid, "total_completions"].fillna(0) + 1
+                    st.session_state.df_habits.loc[st.session_state.df_habits["habit_id"]==hid, "last_completed"] = pd.Timestamp.now()
+                st.session_state.df_tasks.to_csv(DATA_FILE, index=False)
+                st.success(f"Task #{tid} marked completed.")
+            else:
+                st.error("Task ID not found.")
+    with cols[1]:
+        tidr = st.number_input("Task ID to remove", min_value=0, step=1, value=0, key="remove_tid")
+        if st.button("Remove Task"):
+            if tidr in st.session_state.df_tasks["id"].values:
+                st.session_state.df_tasks = st.session_state.df_tasks[st.session_state.df_tasks["id"] != tidr]
+                st.session_state.df_tasks.to_csv(DATA_FILE, index=False)
+                st.success(f"Removed task #{tidr}")
+            else:
+                st.error("Task ID not found.")
+    with cols[2]:
+        tide = st.number_input("Task ID to edit", min_value=0, step=1, value=0, key="edit_tid")
+        if st.button("Edit Task"):
+            if tide in st.session_state.df_tasks["id"].values:
+                row = st.session_state.df_tasks[st.session_state.df_tasks["id"]==tide].iloc[0]
+                new_name = st.text_input("New name", value=row["task"])
+                new_pr = st.selectbox("Priority", ["N","Y"], index=0, key="edit_prio")
+                new_deadline = st.text_input("Deadline (YYYY-MM-DD HH:MM)", value=str(row["deadline"]) if not pd.isna(row["deadline"]) else "")
+                if st.button("Save Changes"):
+                    if new_name:
+                        st.session_state.df_tasks.loc[st.session_state.df_tasks["id"]==tide,"task"] = new_name
+                    if new_pr in ["Y","N"]:
+                        st.session_state.df_tasks.loc[st.session_state.df_tasks["id"]==tide,"priority"] = new_pr
+                    if new_deadline:
+                        parsed = parse_deadline_input(new_deadline)
+                        if not pd.isna(parsed):
+                            st.session_state.df_tasks.loc[st.session_state.df_tasks["id"]==tide,"deadline"] = parsed
+                    st.session_state.df_tasks.to_csv(DATA_FILE, index=False)
+                    st.success("Updated task.")
+            else:
+                st.error("Task ID not found.")
+    with cols[3]:
+        tagsearch = st.text_input("Search tag")
+        if st.button("Search Tag"):
+            if not tagsearch:
+                st.warning("Enter a tag")
+            else:
+                filtered = st.session_state.df_tasks[st.session_state.df_tasks["tags"].apply(lambda x: tagsearch.lower() in str(x).lower())]
+                st.write(filtered[["id","task","tags","status"]])
+    st.markdown("</div>", unsafe_allow_html=True)
+
+def habits_ui():
+    st.markdown("<div class='card'><h3>Habits</h3>", unsafe_allow_html=True)
+    with st.form("create_habit", clear_on_submit=True):
+        name = st.text_input("Habit name")
+        rec = st.selectbox("Recurrence", ["daily","weekly","monthly"])
+        cats = list(CATEGORIES.keys())
+        cat = st.selectbox("Category", cats, index=cats.index("Health"))
+        submit = st.form_submit_button("Create Habit")
+        if submit and name:
+            hid = int(st.session_state.habit_id_counter)
+            new = pd.DataFrame([{
+                "habit_id": hid,
+                "habit_name": name,
+                "recurrence": rec,
+                "category": cat,
+                "active": True,
+                "created_at": pd.Timestamp.now(),
+                "last_completed": pd.NaT,
+                "total_completions": 0
+            }])
+            st.session_state.df_habits = pd.concat([st.session_state.df_habits, new], ignore_index=True)
+            # create initial task for habit
+            dl = now_dt() + timedelta(days=1)
+            prob = predict_prob_local({"priority":"Y","task":name,"deadline":dl,"category":cat})
+            t = st.session_state.df_tasks
+            newt = pd.DataFrame([{
+                "id": st.session_state.task_id_counter,
+                "task": name,
+                "priority":"Y",
+                "status":"Pending",
+                "created_at": pd.Timestamp.now(),
+                "completed_at": pd.NaT,
+                "deadline": dl,
+                "ai_prediction": round(prob*100,2),
+                "category": cat,
+                "tags": f"habit,{rec}",
+                "habit_id": hid,
+                "recurrence": rec,
+                "assigned_to": st.session_state.current_user,
+                "created_by": st.session_state.current_user,
+                "shared": False
+            }])
+            st.session_state.df_tasks = pd.concat([t, newt], ignore_index=True)
+            st.session_state.habit_id_counter += 1
+            st.session_state.task_id_counter += 1
+            st.success("Created habit and initial task.")
+            # persist
+            save_all(st.session_state.df_tasks, st.session_state.df_habits, st.session_state.df_users, st.session_state.df_comments, st.session_state.df_reminders)
+    st.markdown("---")
+    if st.session_state.df_habits.empty:
+        st.info("No habits yet.")
+    else:
+        for _, h in st.session_state.df_habits.iterrows():
+            if not h.get("active", True):
+                continue
+            hid = int(h["habit_id"])
+            total = int(h.get("total_completions",0) if not pd.isna(h.get("total_completions",0)) else 0)
+            st.markdown(f"**#{hid}** {h['habit_name']} — {h['recurrence']} — 🔁 {total} completions")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+def team_ui():
+    st.markdown("<div class='card'><h3>Team</h3>", unsafe_allow_html=True)
+    with st.form("add_member", clear_on_submit=True):
+        un = st.text_input("Username")
+        role_choice = st.selectbox("Role", ["member","manager"])
+        submit = st.form_submit_button("Add Member")
+        if submit and un:
+            if un in st.session_state.df_users["username"].values:
+                st.warning("User already exists")
+            else:
+                new = pd.DataFrame([{"username":un, "role":role_choice, "added_at": pd.Timestamp.now(), "added_by": st.session_state.current_user}])
+                st.session_state.df_users = pd.concat([st.session_state.df_users, new], ignore_index=True)
+                st.session_state.df_users.to_csv(USERS_FILE, index=False)
+                st.success(f"Added {un}")
+    st.markdown("---")
+    if st.session_state.df_users.empty:
+        st.info("No team members yet.")
+    else:
+        for _, u in st.session_state.df_users.iterrows():
+            un = u["username"]
+            role = u.get("role","member")
+            count = len(st.session_state.df_tasks[st.session_state.df_tasks["assigned_to"]==un]) if "assigned_to" in st.session_state.df_tasks.columns else 0
+            st.markdown(f"- **{un}** ({role}) — {count} tasks")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+def analytics_ui():
+    st.markdown("<div class='card'><h3>Analytics</h3>", unsafe_allow_html=True)
+    my = st.session_state.df_tasks.copy()
+    if my.empty:
+        st.info("No tasks to analyze.")
+        st.markdown("</div>", unsafe_allow_html=True)
+        return
+    # Category summary
+    summary = my.groupby("category").agg({"status":["count", lambda x: (x=="Completed").sum()]}).reset_index()
+    summary.columns = ["Category","Total","Completed"]
+    summary["Pending"] = summary["Total"] - summary["Completed"]
+    summary["Rate %"] = (summary["Completed"] / summary["Total"] * 100).round(1)
+    st.table(summary)
+    # Simple chart: completed by day
+    comp = my[my["status"]=="Completed"]
+    if not comp.empty:
+        series = comp.groupby(comp["completed_at"].dt.date).size()
+        fig, ax = plt.subplots()
+        series.plot(kind="bar", ax=ax)
+        ax.set_title("Completed tasks by day")
+        st.pyplot(fig)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+def ai_train_ui():
+    st.markdown("<div class='card'><h3>AI / Train</h3>", unsafe_allow_html=True)
+    if st.button("Train simple logistic regression model"):
+        model = train_simple_model(st.session_state.df_tasks)
+        if model is None:
+            st.warning("Not enough data to train a model (need variety of completed/pending).")
+        else:
+            with open("simple_model.pkl","wb") as f:
+                pickle.dump(model, f)
+            st.success("Trained simple model and saved to simple_model.pkl")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+def exports_ui():
+    st.markdown("<div class='card'><h3>Export</h3>", unsafe_allow_html=True)
+    # CSV download for current user's tasks
+    my = st.session_state.df_tasks.copy()
+    my_user = my[my["assigned_to"]==st.session_state.current_user] if st.session_state.current_user else my
+    csv_buf = my_user.to_csv(index=False).encode("utf-8")
+    st.download_button("Download CSV of my tasks", data=csv_buf, file_name=f"assan_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv", mime="text/csv")
+    # Excel export
+    try:
+        import openpyxl
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine="openpyxl") as writer:
+            my_user.to_excel(writer, sheet_name="All Tasks", index=False)
+            # Summary sheet
+            if not my_user.empty:
+                summary = my_user.groupby("category").agg({"status":["count", lambda x: (x=="Completed").sum()]})
+                summary.columns = ["Total","Completed"]
+                summary = summary.reset_index()
+                summary.to_excel(writer, sheet_name="Summary", index=False)
+        st.download_button("Download Excel", data=output.getvalue(), file_name=f"assan_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    except Exception as e:
+        st.info("Install openpyxl to enable Excel export (add to requirements).")
+    # PDF report (reportlab)
+    try:
+        from reportlab.lib.pagesizes import letter
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+        from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.lib import colors as rl_colors
+
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=letter)
+        story = []
+        styles = getSampleStyleSheet()
+        title = Paragraph("<b>Assan Productivity Report</b>", styles['Title'])
+        story.append(title)
+        story.append(Spacer(1,12))
+        user_para = Paragraph(f"<b>User:</b> {st.session_state.current_user}", styles['Normal'])
+        story.append(user_para)
+        story.append(Spacer(1,12))
+        # Table of tasks
+        data = [["ID","Task","Status","Priority"]]
+        for _, t in my_user.head(50).iterrows():
+            data.append([int(t["id"]), str(t["task"])[:40], str(t["status"]), "⭐" if t["priority"]=="Y" else ""])
+        table = Table(data, colWidths=[40,300,80,50])
+        table.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0), rl_colors.HexColor('#2C3E50')), ('TEXTCOLOR',(0,0),(-1,0), rl_colors.whitesmoke),
+                                   ('ALIGN',(0,0),(-1,-1),'LEFT'), ('GRID',(0,0),(-1,-1),1, rl_colors.grey)]))
+        story.append(table)
+        doc.build(story)
+        st.download_button("Download PDF report", data=buffer.getvalue(), file_name=f"assan_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf", mime="application/pdf")
+    except Exception:
+        st.info("Install reportlab to enable PDF export (add to requirements).")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+def reminders_ui():
+    st.markdown("<div class='card'><h3>Reminders</h3>", unsafe_allow_html=True)
+    q = st.session_state.reminder_queue
+    pending_items = []
+    while not q.empty():
+        pending_items.append(q.get())
+    if not pending_items:
+        st.success("No active reminders.")
+    else:
+        for rem in pending_items:
+            atype = rem.get("alert_type")
+            tid = rem.get("task_id")
+            name = rem.get("task_name")
+            if atype == "overdue":
+                st.error(f"OVERDUE: #{tid} {name}")
+            elif atype == "urgent":
+                st.warning(f"URGENT: #{tid} {name}")
+            else:
+                st.info(f"Warning: #{tid} {name}")
+            # put back in queue for future viewing
+            st.session_state.reminder_queue.put(rem)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+def settings_ui():
+    st.markdown("<div class='card'><h3>Settings</h3>", unsafe_allow_html=True)
+    if st.button("Save all data now"):
+        save_all(st.session_state.df_tasks, st.session_state.df_habits, st.session_state.df_users, st.session_state.df_comments, st.session_state.df_reminders)
+        st.success("Saved.")
+    if st.button("Restart reminder system"):
+        stop_reminder_system()
+        start_reminder_system()
+        st.success("Reminder system restarted.")
+    if st.button("Stop reminder system"):
+        stop_reminder_system()
+        st.success("Stopped reminder system.")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# ---------- Main router ----------
+header()
+content = menu
+
+if content == "Dashboard":
+    st.markdown("<div class='card'><h3>Dashboard</h3>", unsafe_allow_html=True)
+    st.markdown(f"<div class='muted-small'>Welcome, <b>{st.session_state.current_user or '—'}</b></div>", unsafe_allow_html=True)
+    total = len(st.session_state.df_tasks)
+    pending = len(st.session_state.df_tasks[st.session_state.df_tasks["status"]=="Pending"]) if not st.session_state.df_tasks.empty else 0
+    completed = len(st.session_state.df_tasks[st.session_state.df_tasks["status"]=="Completed"]) if not st.session_state.df_tasks.empty else 0
+    st.markdown(f"<div style='margin-top:10px'><b>Total tasks:</b> {total} &nbsp;&nbsp; <b>Pending:</b> {pending} &nbsp;&nbsp; <b>Completed:</b> {completed}</div>", unsafe_allow_html=True)
+    # AI plan
+    st.markdown("---")
+    st.markdown("<h4>Daily AI Plan</h4>", unsafe_allow_html=True)
+    pending_tasks = st.session_state.df_tasks[st.session_state.df_tasks["status"]=="Pending"] if not st.session_state.df_tasks.empty else pd.DataFrame()
+    if pending_tasks.empty:
+        st.info("No pending tasks")
+    else:
+        top = pending_tasks.sort_values("ai_prediction", ascending=False).head(5)
+        for _, t in top.iterrows():
+            tleft, _ = time_left_parts(t["deadline"])
+            st.markdown(f"- #{int(t['id'])} {t['task']} | AI:{t['ai_prediction']:.0f}% | {tleft}")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+elif content == "My Tasks":
+    view_tasks_ui()
+
+elif content == "Add Task":
+    add_task_ui()
+
+elif content == "Habits":
+    habits_ui()
+
+elif content == "Team":
+    team_ui()
+
+elif content == "Analytics":
+    analytics_ui()
+
+elif content == "AI / Train":
+    ai_train_ui()
+
+elif content == "Exports":
+    exports_ui()
+
+elif content == "Reminders":
+    reminders_ui()
+
+elif content == "Settings":
+    settings_ui()
+
+# Footer / autosave on interactions
+st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+if st.button("Save & Exit"):
+    save_all(st.session_state.df_tasks, st.session_state.df_habits, st.session_state.df_users, st.session_state.df_comments, st.session_state.df_reminders)
+    stop_reminder_system()
+    st.success(f"Saved. Goodbye {st.session_state.current_user}!")
+
+# ensure data persisted occasionally
+if st.button("Save now (manual)"):
+    save_all(st.session_state.df_tasks, st.session_state.df_habits, st.session_state.df_users, st.session_state.df_comments, st.session_state.df_reminders)
+    st.success("Saved.")
+
+# End of file
