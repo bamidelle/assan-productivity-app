@@ -666,7 +666,367 @@ def show_team():
     
     with tab5:
         if len(st.session_state.df_users) <= 1:
-            st.info("Add team members")# ==============================================
+            st.info("Add team members")
+        else:
+            team_stats = []
+            for _, user in st.session_state.df_users.iterrows():
+                user_tasks = st.session_state.df_tasks[st.session_state.df_tasks["assigned_to"] == user["username"]]
+                total = len(user_tasks)
+                completed = len(user_tasks[user_tasks["status"] == "Completed"])
+                rate = (completed / total * 100) if total > 0 else 0
+                
+                team_stats.append({
+                    "Member": user["username"],
+                    "Total": total,
+                    "Completed": completed,
+                    "Rate %": round(rate, 1)
+                })
+            
+            df_team = pd.DataFrame(team_stats).sort_values("Rate %", ascending=False)
+            st.dataframe(df_team, use_container_width=True)
+
+# ---------- ANALYTICS ----------
+def show_analytics():
+    st.title("📊 Analytics & Insights")
+    
+    my_tasks = get_my_tasks()
+    
+    if my_tasks.empty:
+        st.info("No data yet")
+        return
+    
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Overview", "Weekly", "Top Days", "Trends", "Smart Analysis"])
+    
+    with tab1:
+        st.markdown("### Category Breakdown")
+        
+        category_stats = my_tasks.groupby("category").agg({
+            "status": ["count", lambda x: (x == "Completed").sum()]
+        }).reset_index()
+        category_stats.columns = ["Category", "Total", "Completed"]
+        category_stats["Rate %"] = (category_stats["Completed"] / category_stats["Total"] * 100).round(1)
+        
+        st.dataframe(category_stats, use_container_width=True)
+        
+        fig, ax = plt.subplots(figsize=(8, 6), facecolor='#0F0F1A')
+        ax.set_facecolor('#0F0F1A')
+        ax.pie(category_stats["Total"], labels=category_stats["Category"], autopct='%1.1f%%', 
+               startangle=90, colors=['#4C6EF5', '#48BB78', '#9F7AEA', '#F56565', '#ED8936', '#5C7CFA'],
+               textprops={'color': 'white', 'fontsize': 12})
+        ax.set_title("Tasks by Category", color='white', fontsize=16, pad=20)
+        st.pyplot(fig)
+    
+    with tab2:
+        st.markdown("### Weekly Summary")
+        
+        week_start = datetime.now() - timedelta(days=7)
+        week_tasks = my_tasks[my_tasks["created_at"] >= week_start]
+        
+        total = len(week_tasks)
+        completed = len(week_tasks[week_tasks["status"] == "Completed"])
+        rate = (completed / total * 100) if total > 0 else 0
+        
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Created", total)
+        col2.metric("Completed", completed)
+        col3.metric("Rate", f"{rate:.1f}%")
+    
+    with tab3:
+        st.markdown("### Most Productive Days")
+        
+        completed_tasks = my_tasks[my_tasks["status"] == "Completed"].copy()
+        
+        if not completed_tasks.empty:
+            completed_tasks["date"] = completed_tasks["completed_at"].dt.date
+            daily_counts = completed_tasks.groupby("date").size().reset_index(name="Tasks")
+            top_days = daily_counts.sort_values("Tasks", ascending=False).head(5)
+            
+            for i, row in top_days.iterrows():
+                medal = "🥇" if i == 0 else "🥈" if i == 1 else "🥉" if i == 2 else "🏅"
+                st.markdown(f"""
+                <div class='card'>
+                    {medal} <strong>{row['date']}</strong>: {row['Tasks']} tasks
+                </div>
+                """, unsafe_allow_html=True)
+    
+    with tab4:
+        st.markdown("### Productivity Trend")
+        
+        completed_tasks = my_tasks[my_tasks["status"] == "Completed"].copy()
+        
+        if not completed_tasks.empty:
+            completed_tasks["date"] = completed_tasks["completed_at"].dt.date
+            daily_counts = completed_tasks.groupby("date").size().reset_index(name="count")
+            
+            fig, ax = plt.subplots(figsize=(10, 5), facecolor='#0F0F1A')
+            ax.set_facecolor('#0F0F1A')
+            ax.plot(daily_counts["date"], daily_counts["count"], marker='o', color='#4C6EF5', linewidth=2, markersize=8)
+            ax.set_xlabel("Date", color='white', fontsize=12)
+            ax.set_ylabel("Tasks Completed", color='white', fontsize=12)
+            ax.tick_params(colors='white')
+            ax.grid(True, alpha=0.2, color='white')
+            ax.spines['bottom'].set_color('white')
+            ax.spines['left'].set_color('white')
+            ax.spines['top'].set_visible(False)
+            ax.spines['right'].set_visible(False)
+            plt.xticks(rotation=45)
+            plt.tight_layout()
+            st.pyplot(fig)
+    
+    with tab5:
+        st.markdown("### Smart Analysis")
+        
+        total = len(my_tasks)
+        completed = len(my_tasks[my_tasks["status"] == "Completed"])
+        rate = (completed / total * 100) if total > 0 else 0
+        
+        st.metric("Completion Rate", f"{rate:.1f}%")
+        
+        if rate >= 70:
+            st.success("🎉 Excellent productivity!")
+        elif rate >= 50:
+            st.info("👍 Good progress!")
+        else:
+            st.warning("💪 Focus on completing tasks!")
+
+# ---------- AI FEATURES ----------
+def show_ai_features():
+    st.title("🤖 AI Features")
+    
+    tab1, tab2 = st.tabs(["AI Daily Plan", "Train AI Model"])
+    
+    with tab1:
+        st.markdown("### Your AI-Powered Daily Plan")
+        
+        my_tasks = get_my_tasks()
+        pending = my_tasks[my_tasks["status"] == "Pending"]
+        
+        if pending.empty:
+            st.success("🎉 All caught up!")
+        else:
+            top_tasks = pending.sort_values("ai_prediction", ascending=False).head(5)
+            
+            for i, (_, task) in enumerate(top_tasks.iterrows(), 1):
+                st.markdown(f"""
+                <div class='card'>
+                    <strong>{i}. {task['task']}</strong><br>
+                    <span style='color: #C9C9D1;'>AI: {task['ai_prediction']:.0f}% | {time_left_str(task['deadline'])}</span>
+                </div>
+                """, unsafe_allow_html=True)
+    
+    with tab2:
+        st.markdown("<div class='card'>", unsafe_allow_html=True)
+        
+        my_tasks = get_my_tasks()
+        completed = my_tasks[my_tasks["status"] == "Completed"]
+        
+        st.write(f"**Training Data:** {len(completed)} completed tasks")
+        
+        if len(completed) < 10:
+            st.warning(f"Need 10+ completed tasks. You have {len(completed)}.")
+        else:
+            if st.button("🚀 Train AI Model", type="primary"):
+                with st.spinner("Training..."):
+                    d = my_tasks.copy()
+                    d["priority_num"] = d["priority"].map({"Y": 1, "N": 0}).fillna(0).astype(int)
+                    d["task_len"] = d["task"].astype(str).apply(len)
+                    d["completed"] = (d["status"] == "Completed").astype(int)
+                    
+                    X = d[["priority_num", "task_len"]]
+                    y = d["completed"]
+                    
+                    if len(y.unique()) >= 2:
+                        model = LogisticRegression(max_iter=200)
+                        model.fit(X, y)
+                        st.session_state.trained_model = model
+                        
+                        for idx, row in st.session_state.df_tasks.iterrows():
+                            prob = predict_prob(row)
+                            st.session_state.df_tasks.at[idx, "ai_prediction"] = round(prob * 100, 2)
+                        
+                        save_data()
+                        st.success("✅ AI Model trained!")
+        
+        st.markdown("</div>", unsafe_allow_html=True)
+
+# ---------- EXPORTS ----------
+def show_exports():
+    st.title("📤 Export & Reports")
+    
+    my_tasks = get_my_tasks()
+    
+    tab1, tab2, tab3, tab4 = st.tabs(["CSV", "Excel", "PDF", "Email Summary"])
+    
+    with tab1:
+        st.markdown("<div class='card'>", unsafe_allow_html=True)
+        
+        if st.button("Generate CSV", type="primary"):
+            csv = my_tasks.to_csv(index=False)
+            
+            st.download_button(
+                label="⬇️ Download CSV",
+                data=csv,
+                file_name=f"assan_tasks_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+            
+            st.success(f"✅ CSV ready! {len(my_tasks)} tasks exported")
+        
+        st.markdown("</div>", unsafe_allow_html=True)
+    
+    with tab2:
+        st.markdown("<div class='card'>", unsafe_allow_html=True)
+        
+        if st.button("Generate Excel", type="primary"):
+            try:
+                output = io.BytesIO()
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                    my_tasks.to_excel(writer, sheet_name='All Tasks', index=False)
+                    
+                    summary = my_tasks.groupby("category").agg({
+                        "status": ["count", lambda x: (x == "Completed").sum()]
+                    }).reset_index()
+                    summary.columns = ["Category", "Total", "Completed"]
+                    summary["Rate %"] = (summary["Completed"] / summary["Total"] * 100).round(1)
+                    summary.to_excel(writer, sheet_name='Summary', index=False)
+                
+                output.seek(0)
+                
+                st.download_button(
+                    label="⬇️ Download Excel",
+                    data=output,
+                    file_name=f"assan_tasks_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+                
+                st.success("✅ Excel ready!")
+            except:
+                st.error("❌ openpyxl not installed. Use CSV export.")
+        
+        st.markdown("</div>", unsafe_allow_html=True)
+    
+    with tab3:
+        st.markdown("<div class='card'>", unsafe_allow_html=True)
+        st.info("📝 PDF generation requires reportlab library. Use CSV/Excel for now.")
+        st.markdown("</div>", unsafe_allow_html=True)
+    
+    with tab4:
+        st.markdown("<div class='card'>", unsafe_allow_html=True)
+        
+        total = len(my_tasks)
+        completed = len(my_tasks[my_tasks["status"] == "Completed"])
+        pending = total - completed
+        rate = (completed / total * 100) if total > 0 else 0
+        
+        summary_text = f"""
+ASSAN PRODUCTIVITY SUMMARY
+
+User: {st.session_state.current_user}
+Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}
+
+═══════════════════════════════
+
+📊 STATISTICS:
+• Total Tasks: {total}
+• Completed: {completed}
+• Pending: {pending}
+• Completion Rate: {rate:.1f}%
+
+═══════════════════════════════
+
+Copy this summary and email it!
+        """
+        
+        st.text_area("Email Summary", summary_text, height=300)
+        
+        st.markdown("</div>", unsafe_allow_html=True)
+
+# ---------- REMINDERS ----------
+def show_reminders_section():
+    my_tasks = get_my_tasks()
+    pending = my_tasks[my_tasks["status"] == "Pending"]
+    
+    urgent_tasks = []
+    
+    for _, task in pending.iterrows():
+        if not pd.isna(task["deadline"]):
+            diff = (task["deadline"] - pd.Timestamp.now()).total_seconds()
+            
+            if diff <= 0:
+                urgent_tasks.append(("🔴 OVERDUE", task))
+            elif diff <= 3600:
+                urgent_tasks.append(("🟠 URGENT", task))
+    
+    if urgent_tasks:
+        st.markdown("### 🔔 Urgent Reminders")
+        for label, task in urgent_tasks[:5]:
+            col1, col2, col3 = st.columns([3, 1, 1])
+            col1.error(f"{label}: {task['task']}")
+            col2.write(time_left_str(task['deadline']))
+            if col3.button("✅", key=f"remind_{task['id']}"):
+                complete_task(int(task['id']))
+                st.rerun()
+
+# ---------- SETTINGS ----------
+def show_settings():
+    st.title("⚙️ Settings")
+    
+    tab1, tab2 = st.tabs(["User Info", "Data Management"])
+    
+    with tab1:
+        st.markdown("### 👤 User Information")
+        
+        my_tasks = get_my_tasks()
+        
+        st.markdown(f"""
+        <div class='card'>
+            <p><strong>Username:</strong> {st.session_state.current_user}</p>
+            <p><strong>Total Tasks:</strong> {len(my_tasks)}</p>
+            <p><strong>Completed:</strong> {len(my_tasks[my_tasks['status'] == 'Completed'])}</p>
+            <p><strong>Active Habits:</strong> {len(st.session_state.df_habits[st.session_state.df_habits['active'] == True])}</p>
+            <p><strong>Team Members:</strong> {len(st.session_state.df_users)}</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with tab2:
+        st.markdown("### 📁 Data Management")
+        
+        st.markdown("<div class='card'>", unsafe_allow_html=True)
+        
+        export_files = []
+        for pattern in ['export_*.csv', 'export_*.xlsx', 'report_*.pdf']:
+            import glob
+            export_files.extend(glob.glob(pattern))
+        
+        if export_files:
+            st.write("**Export Files:**")
+            for file in export_files:
+                st.write(f"📄 {file}")
+        else:
+            st.info("No export files yet")
+        
+        st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
+        
+        if st.button("💾 Save All Data", type="primary"):
+            save_data()
+            st.success("✅ All data saved!")
+        
+        st.markdown("</div>", unsafe_allow_html=True)
+
+# ---------- MAIN ----------
+def main():
+    if st.session_state.df_tasks.empty and os.path.exists(DATA_FILE):
+        load_data()
+    
+    if st.session_state.current_user is None:
+        show_login()
+    else:
+        show_main_app()
+
+if __name__ == "__main__":
+    main()# ==============================================
 # ASSAN - FIREBASE STUDIO DARK THEME
 # Complete Productivity App with Modern UI
 # ==============================================
