@@ -345,6 +345,10 @@ def show_dashboard():
     st.write("Recent tasks:")
     for _, t in my_tasks.head(5).iterrows():
         st.markdown(f"<div class='task-card'>{'✅' if t['status']=='Completed' else '⏳'} #{int(t['id'])} {t['task']}</div>", unsafe_allow_html=True)
+# --- GO TO PROFILE BUTTON ---
+if st.button("Go to Your Profile"):
+    st.session_state.current_page = "profile"
+    st.experimental_rerun()
 
 # 2. Add Task with Clock In/Out
 def show_add_task():
@@ -889,3 +893,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
