@@ -908,55 +908,26 @@ def show_settings():
 
 
 # ===============================
-# 35. Main App Controller
+# 37. User Profile Page
 # ===============================
-def main():
-    # Load data if empty but save file exists
-    if st.session_state.df_tasks.empty and os.path.exists(DATA_FILE):
-        load_data()
-
-    # If no page is set, default to dashboard
-    if "page" not in st.session_state:
+def show_profile():
+    st.title("👤 Your Profile")
+    
+    # Show basic info
+    st.write(f"**Username:** {st.session_state.current_user}")
+    
+    # Example: editable display name
+    new_name = st.text_input("Display Name", value=st.session_state.current_user or "")
+    if st.button("💾 Save Profile"):
+        if new_name.strip():
+            st.session_state.current_user = new_name.strip()
+            st.success("✅ Profile updated!")
+    
+    # Optional: Back to dashboard button
+    st.divider()
+    if st.button("🏠 Back to Dashboard"):
         st.session_state.page = "dashboard"
-
-    # If user not logged in → show login
-    if st.session_state.current_user is None:
-        show_login()
-        return
-
-    # Page Router (PREVENTS LOOP)
-    if st.session_state.page == "dashboard":
-        show_main_app()
-
-        st.divider()
-        st.subheader("🔙 Navigation")
-
-        if st.button("👤 Go to Profile"):
-            st.session_state.page = "profile"
-            st.experimental_rerun()
-
-    elif st.session_state.page == "profile":
-        show_profile()   # ← your existing function
-
-        st.divider()
-        if st.button("🏠 Back to Dashboard"):
-            st.session_state.page = "dashboard"
-            st.experimental_rerun()
-
-    elif st.session_state.page == "settings":
-        show_settings()
-
-        st.divider()
-        if st.button("🏠 Back to Dashboard"):
-            st.session_state.page = "dashboard"
-            st.experimental_rerun()
-
-
-# ===============================
-# 36. Run App
-# ===============================
-if __name__ == "__main__":
-    main()
+        st.experimental_rerun()
 
 
 
