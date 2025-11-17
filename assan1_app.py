@@ -892,42 +892,75 @@ def show_settings():
         st.success("✅ Saved!")
 
 # ===============================
-# 34. Settings
-# ===============================
-def show_settings():
-    st.title("⚙️ Settings")
-    my_tasks = get_my_tasks()
-    st.write(f"**User:** {st.session_state.current_user}")
-    st.write(f"**Total Tasks:** {len(my_tasks)}")
-    st.write(f"**Completed:** {len(my_tasks[my_tasks['status'] == 'Completed'])}")
-    st.write(f"**Active Habits:** {len(st.session_state.df_habits[st.session_state.df_habits['active'] == True])}")
-
-    if st.button("💾 Save All Data"):
-        save_data()
-        st.success("✅ Saved!")
-
-
-# ===============================
-# 37. User Profile Page
+# 1. User Profile Page
 # ===============================
 def show_profile():
     st.title("👤 Your Profile")
     
-    # Show basic info
     st.write(f"**Username:** {st.session_state.current_user}")
     
-    # Example: editable display name
+    # Editable display name
     new_name = st.text_input("Display Name", value=st.session_state.current_user or "")
+    
     if st.button("💾 Save Profile"):
         if new_name.strip():
             st.session_state.current_user = new_name.strip()
             st.success("✅ Profile updated!")
-    
-    # Optional: Back to dashboard button
+
+    # Back to dashboard
     st.divider()
     if st.button("🏠 Back to Dashboard"):
         st.session_state.page = "dashboard"
         st.experimental_rerun()
+
+
+# ===============================
+# 2. Main App Controller
+# ===============================
+def main():
+    # Load data if tasks are empty but file exists
+    if st.session_state.df_tasks.empty and os.path.exists(DATA_FILE):
+        load_data()
+
+    # Initialize page state
+    if "page" not in st.session_state:
+        st.session_state.page = "dashboard"
+
+    # User not logged in
+    if st.session_state.current_user is None:
+        show_login()
+        return
+
+    # ------------------------
+    # Page Router
+    # ------------------------
+    if st.session_state.page == "dashboard":
+        show_main_app()  # your existing dashboard/sidebar function
+
+        st.divider()
+        st.subheader("🔙 Navigation")
+        if st.button("👤 Go to Profile"):
+            st.session_state.page = "profile"
+            st.experimental_rerun()
+
+    elif st.session_state.page == "profile":
+        show_profile()
+
+    elif st.session_state.page == "settings":
+        show_settings()
+
+        st.divider()
+        if st.button("🏠 Back to Dashboard"):
+            st.session_state.page = "dashboard"
+            st.experimental_rerun()
+
+
+# ===============================
+# 3. Run App
+# ===============================
+if __name__ == "__main__":
+    main()
+
 
 
 
