@@ -891,17 +891,54 @@ def show_settings():
         save_data()
         st.success("✅ Saved!")
 
+# ===============================
+# 34. Settings
+# ===============================
+def show_settings():
+    st.title("⚙️ Settings")
+    my_tasks = get_my_tasks()
+    st.write(f"**User:** {st.session_state.current_user}")
+    st.write(f"**Total Tasks:** {len(my_tasks)}")
+    st.write(f"**Completed:** {len(my_tasks[my_tasks['status'] == 'Completed'])}")
+    st.write(f"**Active Habits:** {len(st.session_state.df_habits[st.session_state.df_habits['active'] == True])}")
+
+    if st.button("💾 Save All Data"):
+        save_data()
+        st.success("✅ Saved!")
+
+
+# ===============================
+# 35. Main App Controller
+# ===============================
 def main():
+    # Load data if tasks are empty but file exists
     if st.session_state.df_tasks.empty and os.path.exists(DATA_FILE):
         load_data()
-    
+
+    # If user not logged in → show login page
     if st.session_state.current_user is None:
         show_login()
+
     else:
+        # Show main application
         show_main_app()
 
+        # ADD THIS BLOCK — the “Go to Profile” button works now
+        st.divider()
+        st.subheader("🔙 Navigation")
+
+        if st.button("👤 Go to Profile"):
+            st.session_state.page = "profile"
+            st.experimental_rerun()
+
+
+# ===============================
+# 36. Run App
+# ===============================
 if __name__ == "__main__":
     main()
+
+
 
 
 
