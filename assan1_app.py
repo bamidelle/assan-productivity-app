@@ -353,9 +353,10 @@ def show_dashboard():
         )
 
     # --- FIXED: Button MUST be inside the function ---
-    if st.button("Go to Your Profile"):
-        st.session_state.current_page = "profile"
-        st.rerun()    # Use the new API
+    if st.button("Go to Menu"):
+    st.session_state.current_page = "menu"
+    st.rerun()
+
 
 
 # 2. Add Task with Clock In/Out
@@ -901,5 +902,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
