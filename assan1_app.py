@@ -354,8 +354,8 @@ def show_dashboard():
 
     # --- FIXED: Button MUST be inside the function ---
     if st.button("Go to Menu"):
-    st.session_state.current_page = "menu"
-    st.rerun()
+        st.session_state.current_page = "menu"
+        st.rerun()
 
 
 
@@ -902,6 +902,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
