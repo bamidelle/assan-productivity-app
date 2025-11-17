@@ -337,18 +337,26 @@ def show_main_app():
 def show_dashboard():
     st.title("🏠 Dashboard")
     my_tasks = get_my_tasks()
+
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Total", len(my_tasks))
     col2.metric("Done", len(my_tasks[my_tasks["status"] == "Completed"]))
     col3.metric("Pending", len(my_tasks[my_tasks["status"] == "Pending"]))
     col4.metric("Priority", len(my_tasks[my_tasks["priority"] == "Y"]))
+
     st.write("Recent tasks:")
     for _, t in my_tasks.head(5).iterrows():
-        st.markdown(f"<div class='task-card'>{'✅' if t['status']=='Completed' else '⏳'} #{int(t['id'])} {t['task']}</div>", unsafe_allow_html=True)
-# --- GO TO PROFILE BUTTON ---
-if st.button("Go to Your Profile"):
-    st.session_state.current_page = "profile"
-    st.experimental_rerun()
+        st.markdown(
+            f"<div class='task-card'>{'✅' if t['status']=='Completed' else '⏳'} "
+            f"#{int(t['id'])} {t['task']}</div>",
+            unsafe_allow_html=True
+        )
+
+    # --- FIXED: Button MUST be inside the function ---
+    if st.button("Go to Your Profile"):
+        st.session_state.current_page = "profile"
+        st.rerun()    # Use the new API
+
 
 # 2. Add Task with Clock In/Out
 def show_add_task():
@@ -893,4 +901,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
