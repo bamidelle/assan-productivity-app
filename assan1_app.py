@@ -911,24 +911,44 @@ def show_settings():
 # 35. Main App Controller
 # ===============================
 def main():
-    # Load data if tasks are empty but file exists
+    # Load data if empty but save file exists
     if st.session_state.df_tasks.empty and os.path.exists(DATA_FILE):
         load_data()
 
-    # If user not logged in → show login page
+    # If no page is set, default to dashboard
+    if "page" not in st.session_state:
+        st.session_state.page = "dashboard"
+
+    # If user not logged in → show login
     if st.session_state.current_user is None:
         show_login()
+        return
 
-    else:
-        # Show main application
+    # Page Router (PREVENTS LOOP)
+    if st.session_state.page == "dashboard":
         show_main_app()
 
-        # ADD THIS BLOCK — the “Go to Profile” button works now
         st.divider()
         st.subheader("🔙 Navigation")
 
         if st.button("👤 Go to Profile"):
             st.session_state.page = "profile"
+            st.experimental_rerun()
+
+    elif st.session_state.page == "profile":
+        show_profile()   # ← your existing function
+
+        st.divider()
+        if st.button("🏠 Back to Dashboard"):
+            st.session_state.page = "dashboard"
+            st.experimental_rerun()
+
+    elif st.session_state.page == "settings":
+        show_settings()
+
+        st.divider()
+        if st.button("🏠 Back to Dashboard"):
+            st.session_state.page = "dashboard"
             st.experimental_rerun()
 
 
@@ -937,6 +957,7 @@ def main():
 # ===============================
 if __name__ == "__main__":
     main()
+
 
 
 
