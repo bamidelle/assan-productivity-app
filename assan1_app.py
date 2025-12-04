@@ -1,970 +1,1479 @@
 # ==============================================
-# ASSAN - COMPLETE PRODUCTIVITY APP
-# All 32 Features + Clock In/Out
-# White Background, Black Text
+# COMPLETE PRODUCTIVITY APP - LESSONS 15-21 (MERGED)
+# Full-Featured Multi-User Task Management System
+# Includes: Reminders, Habits, Team, NN training, Dashboard & Analytics
 # ==============================================
-
-import streamlit as st
-import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta
-import time
 import os
-from sklearn.linear_model import LogisticRegression
+import sys
+import time
+import threading
+import queue
+from datetime import datetime, timedelta
+import math
+import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense
+import pickle
+from tqdm import tqdm
 import warnings
-import io
-import glob
 warnings.filterwarnings('ignore')
 
-st.set_page_config(page_title="Assan", page_icon="🎯", layout="wide", initial_sidebar_state="expanded")
-
-# ---------- WHITE THEME CSS ----------
-st.markdown("""
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-    * { font-family: 'Inter', sans-serif !important; }
-    .stApp { background: #FFFFFF !important; }
-    .main .block-container { background: #FFFFFF; padding: 2rem 3rem; max-width: 1400px; margin: 0 auto; }
-    [data-testid="stSidebar"] { background: #F8F9FA !important; border-right: 1px solid #E0E0E0; }
-    h1, h2, h3, p, span, div, label { color: #000000 !important; }
-    .stButton > button { background: linear-gradient(90deg, #4C6EF5, #5C7CFA) !important; color: #FFFFFF !important; border: none !important; border-radius: 8px !important; padding: 0.6rem 1.2rem !important; font-weight: 600 !important; }
-    .stButton > button:hover { opacity: 0.9; }
-    .stTextInput > div > div > input, .stTextArea > div > div > textarea, .stSelectbox > div > div > select { background: #FFFFFF !important; border: 1px solid #D0D0D0 !important; border-radius: 6px !important; color: #000000 !important; padding: 0.6rem !important; }
-    .card { background: #F8F9FA; border: 1px solid #E0E0E0; border-radius: 12px; padding: 1.5rem; margin: 1rem 0; }
-    .task-card { background: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 8px; padding: 1rem; margin: 0.5rem 0; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-    .task-card:hover { box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
-    #MainMenu, footer, header { visibility: hidden; }
-</style>
-""", unsafe_allow_html=True)
-
+# ---------- FILES ----------
+USER_FILE = "username.txt"
 DATA_FILE = "tasks.csv"
+REMINDER_LOG = "reminders.csv"
 HABITS_FILE = "habits.csv"
 USERS_FILE = "users.csv"
 COMMENTS_FILE = "comments.csv"
-TIMESHEET_FILE = "timesheet.csv"
+MODEL_FILE = "model.h5"
+SCALER_FILE = "scaler.pkl"
 
-CATEGORIES = {"Work": "🏢", "Personal": "🏠", "Learning": "🎓", "Health": "💪", "Creative": "🎨", "Other": "📌"}
+# ---------- COLORS ----------
+MAGENTA = "\033[95m"
+ORANGE = "\033[38;5;208m"
+RED = "\033[91m"
+DEEP_RED = "\033[38;5;160m"
+GREEN = "\033[92m"
+YELLOW = "\033[93m"
+CYAN = "\033[96m"
+BLUE = "\033[94m"
+PURPLE = "\033[35m"
+RESET = "\033[0m"
+BOLD = "\033[1m"
+BLINK = "\033[5m"
 
-def init_session_state():
-    defaults = {'current_user': None, 'df_tasks': pd.DataFrame(), 'df_habits': pd.DataFrame(), 'df_users': pd.DataFrame(), 
-                'df_comments': pd.DataFrame(), 'df_timesheet': pd.DataFrame(), 'task_id_counter': 1, 'habit_id_counter': 1, 
-                'comment_id_counter': 1, 'timesheet_id_counter': 1, 'trained_model': None, 'clocked_in': False, 
-                'clock_in_time': None, 'current_task_id': None}
-    for key, value in defaults.items():
-        if key not in st.session_state:
-            st.session_state[key] = value
+# ---------- CATEGORIES ----------
+CATEGORIES = {
+    "Work": {"icon": "🏢", "color": BLUE},
+    "Personal": {"icon": "🏠", "color": GREEN},
+    "Learning": {"icon": "🎓", "color": PURPLE},
+    "Health": {"icon": "💪", "color": RED},
+    "Creative": {"icon": "🎨", "color": MAGENTA},
+    "Other": {"icon": "📌", "color": CYAN}
+}
 
-init_session_state()
+RECURRENCE_TYPES = {
+    "daily": {"name": "Daily", "icon": "📅"},
+    "weekly": {"name": "Weekly", "icon": "📆"},
+    "monthly": {"name": "Monthly", "icon": "🗓️"},
+    "none": {"name": "One-time", "icon": "📌"}
+}
 
-def load_data():
-    if os.path.exists(USERS_FILE):
-        st.session_state.df_users = pd.read_csv(USERS_FILE)
-        st.session_state.df_users["added_at"] = pd.to_datetime(st.session_state.df_users["added_at"], errors='coerce')
-    else:
-        st.session_state.df_users = pd.DataFrame(columns=["username", "role", "added_at", "added_by"])
-    
-    if os.path.exists(DATA_FILE):
-        st.session_state.df_tasks = pd.read_csv(DATA_FILE, low_memory=False)
-        for c in ["created_at", "completed_at", "deadline"]:
-            if c in st.session_state.df_tasks.columns:
-                st.session_state.df_tasks[c] = pd.to_datetime(st.session_state.df_tasks[c], errors='coerce')
-        for col, default in [("category", "Other"), ("tags", ""), ("ai_prediction", 0.0), ("habit_id", np.nan), 
-                            ("recurrence", "none"), ("assigned_to", ""), ("created_by", ""), ("shared", False), ("deadline", pd.NaT)]:
-            if col not in st.session_state.df_tasks.columns:
-                st.session_state.df_tasks[col] = default
-        if not st.session_state.df_tasks.empty:
-            st.session_state.task_id_counter = int(st.session_state.df_tasks["id"].max()) + 1
-    else:
-        st.session_state.df_tasks = pd.DataFrame(columns=["id","task","priority","status","created_at","completed_at","deadline","ai_prediction","category","tags","habit_id","recurrence","assigned_to","created_by","shared"])
-    
-    if os.path.exists(HABITS_FILE):
-        st.session_state.df_habits = pd.read_csv(HABITS_FILE)
-        for c in ["created_at", "last_completed"]:
-            if c in st.session_state.df_habits.columns:
-                st.session_state.df_habits[c] = pd.to_datetime(st.session_state.df_habits[c], errors='coerce')
-        if not st.session_state.df_habits.empty:
-            st.session_state.habit_id_counter = int(st.session_state.df_habits["habit_id"].max()) + 1
-    else:
-        st.session_state.df_habits = pd.DataFrame(columns=["habit_id","habit_name","recurrence","category","active","created_at","last_completed","total_completions"])
-    
-    if os.path.exists(COMMENTS_FILE):
-        st.session_state.df_comments = pd.read_csv(COMMENTS_FILE)
-        st.session_state.df_comments["timestamp"] = pd.to_datetime(st.session_state.df_comments["timestamp"], errors='coerce')
-        if not st.session_state.df_comments.empty:
-            st.session_state.comment_id_counter = int(st.session_state.df_comments["comment_id"].max()) + 1
-    else:
-        st.session_state.df_comments = pd.DataFrame(columns=["comment_id", "task_id", "username", "comment", "timestamp"])
-    
-    if os.path.exists(TIMESHEET_FILE):
-        st.session_state.df_timesheet = pd.read_csv(TIMESHEET_FILE)
-        st.session_state.df_timesheet["clock_in"] = pd.to_datetime(st.session_state.df_timesheet["clock_in"], errors='coerce')
-        st.session_state.df_timesheet["clock_out"] = pd.to_datetime(st.session_state.df_timesheet["clock_out"], errors='coerce')
-        if not st.session_state.df_timesheet.empty:
-            st.session_state.timesheet_id_counter = int(st.session_state.df_timesheet["timesheet_id"].max()) + 1
-    else:
-        st.session_state.df_timesheet = pd.DataFrame(columns=["timesheet_id", "username", "task_id", "task_name", "clock_in", "clock_out", "duration_minutes"])
+# ---------- GLOBALS ----------
+reminder_queue = queue.Queue()
+reminder_thread = None
+stop_reminder_thread = threading.Event()
+shown_reminders = set()
 
-def save_data():
-    st.session_state.df_tasks.to_csv(DATA_FILE, index=False)
-    st.session_state.df_habits.to_csv(HABITS_FILE, index=False)
-    st.session_state.df_users.to_csv(USERS_FILE, index=False)
-    st.session_state.df_comments.to_csv(COMMENTS_FILE, index=False)
-    if not st.session_state.df_timesheet.empty:
-        st.session_state.df_timesheet.to_csv(TIMESHEET_FILE, index=False)
+# ---------- UTILITY FUNCTIONS ----------
+def clear_console():
+    os.system('cls' if os.name == 'nt' else 'clear')
 
-def time_left_str(deadline_ts):
+def now_dt():
+    return datetime.now()
+
+def parse_deadline_input(inp):
+    s = str(inp).strip()
+    if not s:
+        return pd.NaT
+    fmts = ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d", "%H:%M:%S", "%H:%M"]
+    for f in fmts:
+        try:
+            dt = datetime.strptime(s, f)
+            if f in ("%H:%M", "%H:%M:%S"):
+                today = datetime.now().date()
+                dt = datetime.combine(today, dt.time())
+            elif f == "%Y-%m-%d":
+                dt = datetime.combine(dt.date(), datetime.max.time()).replace(microsecond=0)
+            return pd.Timestamp(dt)
+        except:
+            continue
+    parsed = pd.to_datetime(s, errors='coerce')
+    return parsed if not pd.isna(parsed) else pd.NaT
+
+def time_left_parts(deadline_ts):
     if pd.isna(deadline_ts):
-        return "No deadline"
-    diff = (deadline_ts.to_pydatetime() - datetime.now()).total_seconds()
-    if diff <= 0:
-        return "OVERDUE"
-    days, rem = divmod(int(diff), 86400)
+        return ("No deadline", None)
+    now = now_dt()
+    try:
+        dl = deadline_ts.to_pydatetime() if isinstance(deadline_ts, pd.Timestamp) else pd.to_datetime(deadline_ts).to_pydatetime()
+    except:
+        dl = pd.to_datetime(deadline_ts, errors='coerce')
+        if pd.isna(dl):
+            return ("Invalid", None)
+        dl = dl.to_pydatetime()
+    diff = dl - now
+    secs = int(diff.total_seconds())
+    if secs <= 0:
+        return ("OVERDUE", secs)
+    days, rem = divmod(secs, 86400)
     hours, rem = divmod(rem, 3600)
-    mins, _ = divmod(rem, 60)
+    minutes, seconds = divmod(rem, 60)
     parts = []
     if days > 0: parts.append(f"{days}d")
     if hours > 0: parts.append(f"{hours}h")
-    if mins > 0: parts.append(f"{mins}m")
-    return " ".join(parts) if parts else "< 1m"
+    if minutes > 0: parts.append(f"{minutes}m")
+    parts.append(f"{seconds}s")
+    return (" ".join(parts), secs)
 
-def predict_prob(row):
-    if st.session_state.trained_model:
+def parse_tags(tag_string):
+    if pd.isna(tag_string) or str(tag_string).strip() == "":
+        return []
+    return [t.strip().lower() for t in str(tag_string).split(",") if t.strip()]
+
+def format_tags(tags_list):
+    if not tags_list or len(tags_list) == 0:
+        return ""
+    return CYAN + " [" + ", ".join(tags_list) + "]" + RESET
+
+def get_category_display(category):
+    if category not in CATEGORIES:
+        category = "Other"
+    cat_info = CATEGORIES[category]
+    return f"{cat_info['color']}{cat_info['icon']} {category}{RESET}"
+
+def get_user_color(username):
+    colors = [CYAN, GREEN, YELLOW, MAGENTA, BLUE, PURPLE]
+    hash_val = sum(ord(c) for c in str(username))
+    return colors[hash_val % len(colors)]
+
+# ---------- LOAD USER ----------
+if os.path.exists(USER_FILE):
+    with open(USER_FILE, "r") as f:
+        current_user = f.read().strip()
+else:
+    current_user = input("Enter your name: ").strip()
+    with open(USER_FILE, "w") as f:
+        f.write(current_user)
+
+# ---------- LOAD DATA ----------
+if os.path.exists(USERS_FILE):
+    df_users = pd.read_csv(USERS_FILE)
+    if "added_at" in df_users.columns:
+        df_users["added_at"] = pd.to_datetime(df_users["added_at"], errors='coerce')
+else:
+    df_users = pd.DataFrame(columns=["username", "role", "added_at", "added_by"])
+    df_users = pd.concat([df_users, pd.DataFrame([{
+        "username": current_user, "role": "owner", "added_at": pd.Timestamp.now(), "added_by": "self"
+    }])], ignore_index=True)
+    df_users.to_csv(USERS_FILE, index=False)
+
+if current_user not in df_users["username"].values:
+    df_users = pd.concat([df_users, pd.DataFrame([{
+        "username": current_user, "role": "owner", "added_at": pd.Timestamp.now(), "added_by": "self"
+    }])], ignore_index=True)
+    df_users.to_csv(USERS_FILE, index=False)
+
+if os.path.exists(DATA_FILE):
+    df_tasks = pd.read_csv(DATA_FILE, low_memory=False)
+    for c in ["created_at", "completed_at", "deadline"]:
+        if c in df_tasks.columns:
+            df_tasks[c] = pd.to_datetime(df_tasks[c], errors='coerce')
+    # ensure columns
+    defaults = {
+        "category": "Other", "tags": "", "ai_prediction": np.nan,
+        "habit_id": np.nan, "recurrence": "none", "assigned_to": current_user,
+        "created_by": current_user, "shared": False, "deadline": pd.NaT, "estimated_minutes": 30
+    }
+    for col, default in defaults.items():
+        if col not in df_tasks.columns:
+            df_tasks[col] = default
+else:
+    df_tasks = pd.DataFrame(columns=["id","task","priority","status","created_at","completed_at",
+        "deadline","ai_prediction","category","tags","habit_id","recurrence","assigned_to","created_by","shared","estimated_minutes"])
+
+df_tasks = df_tasks.sort_values("id") if not df_tasks.empty else df_tasks
+task_id_counter = int(df_tasks["id"].max()) + 1 if not df_tasks.empty else 1
+
+if os.path.exists(HABITS_FILE):
+    df_habits = pd.read_csv(HABITS_FILE)
+    for c in ["created_at", "last_completed"]:
+        if c in df_habits.columns:
+            df_habits[c] = pd.to_datetime(df_habits[c], errors='coerce')
+else:
+    df_habits = pd.DataFrame(columns=["habit_id","habit_name","recurrence","category","active","created_at","last_completed","total_completions"])
+habit_id_counter = int(df_habits["habit_id"].max()) + 1 if not df_habits.empty else 1
+
+if os.path.exists(COMMENTS_FILE):
+    df_comments = pd.read_csv(COMMENTS_FILE)
+    if "timestamp" in df_comments.columns:
+        df_comments["timestamp"] = pd.to_datetime(df_comments["timestamp"], errors='coerce')
+else:
+    df_comments = pd.DataFrame(columns=["comment_id", "task_id", "username", "comment", "timestamp"])
+comment_id_counter = int(df_comments["comment_id"].max()) + 1 if not df_comments.empty else 1
+
+if os.path.exists(REMINDER_LOG):
+    df_reminders = pd.read_csv(REMINDER_LOG)
+    if "timestamp" in df_reminders.columns:
+        df_reminders["timestamp"] = pd.to_datetime(df_reminders["timestamp"], errors='coerce')
+else:
+    df_reminders = pd.DataFrame(columns=["task_id", "task_name", "alert_type", "timestamp"])
+
+def log_reminder(task_id, task_name, alert_type):
+    global df_reminders
+    df_reminders = pd.concat([df_reminders, pd.DataFrame([{
+        "task_id": task_id, "task_name": task_name, "alert_type": alert_type, "timestamp": pd.Timestamp.now()
+    }])], ignore_index=True)
+    df_reminders.to_csv(REMINDER_LOG, index=False)
+
+# ---------- REMINDERS ----------
+def check_reminders_background():
+    global df_tasks, reminder_queue, shown_reminders
+    while not stop_reminder_thread.is_set():
         try:
-            p = 1 if str(row.get("priority","N")).upper()=="Y" else 0
-            l = len(str(row.get("task", "")))
-            return float(st.session_state.trained_model.predict_proba([[p, l]])[0][1])
+            if not df_tasks.empty:
+                pending = df_tasks[(df_tasks["status"] == "Pending") & (df_tasks["assigned_to"] == current_user)].copy()
+                for _, task in pending.iterrows():
+                    if pd.isna(task["deadline"]):
+                        continue
+                    task_id = int(task["id"])
+                    _, secs = time_left_parts(task["deadline"])
+                    if secs is None:
+                        continue
+                    reminder_key = None
+                    alert_type = None
+                    if secs <= 0:
+                        reminder_key = f"{task_id}_overdue"
+                        alert_type = "overdue"
+                    elif secs <= 900:
+                        reminder_key = f"{task_id}_urgent"
+                        alert_type = "urgent"
+                    elif secs <= 3600:
+                        reminder_key = f"{task_id}_warning"
+                        alert_type = "warning"
+                    if reminder_key and reminder_key not in shown_reminders:
+                        reminder_queue.put({"task_id": task_id, "task_name": task["task"], "alert_type": alert_type, "time_left": secs})
+                        shown_reminders.add(reminder_key)
+                        log_reminder(task_id, task["task"], alert_type)
+            time.sleep(30)
         except:
-            pass
-    return 0.8 if str(row.get("priority","N")).upper()=="Y" else 0.3
+            time.sleep(30)
 
-def calculate_streak(habit_id):
-    if st.session_state.df_tasks.empty:
-        return 0
-    habit_tasks = st.session_state.df_tasks[(st.session_state.df_tasks["habit_id"] == habit_id) & (st.session_state.df_tasks["status"] == "Completed")].sort_values("completed_at", ascending=False)
-    if habit_tasks.empty:
-        return 0
-    habit_info = st.session_state.df_habits[st.session_state.df_habits["habit_id"] == habit_id].iloc[0]
-    recurrence = habit_info["recurrence"]
-    streak = 0
-    expected_date = datetime.now().date()
-    for _, task in habit_tasks.iterrows():
-        completed_date = task["completed_at"].date()
-        if recurrence == "daily":
-            if completed_date >= expected_date - timedelta(days=1):
-                streak += 1
-                expected_date = completed_date - timedelta(days=1)
-            else:
-                break
-        elif recurrence == "weekly":
-            if completed_date >= expected_date - timedelta(weeks=1):
-                streak += 1
-                expected_date = completed_date - timedelta(weeks=1)
-            else:
-                break
-    return streak
+def start_reminder_system():
+    global reminder_thread
+    if reminder_thread is None or not reminder_thread.is_alive():
+        stop_reminder_thread.clear()
+        reminder_thread = threading.Thread(target=check_reminders_background, daemon=True)
+        reminder_thread.start()
 
-def get_my_tasks():
-    return st.session_state.df_tasks[st.session_state.df_tasks["assigned_to"] == st.session_state.current_user].copy()
+def stop_reminder_system():
+    stop_reminder_thread.set()
+    if reminder_thread:
+        reminder_thread.join(timeout=1)
 
-def complete_task(task_id):
-    st.session_state.df_tasks.loc[st.session_state.df_tasks["id"] == task_id, "status"] = "Completed"
-    st.session_state.df_tasks.loc[st.session_state.df_tasks["id"] == task_id, "completed_at"] = pd.Timestamp.now()
-    task = st.session_state.df_tasks[st.session_state.df_tasks["id"] == task_id].iloc[0]
-    if not pd.isna(task["habit_id"]):
-        habit_id = int(task["habit_id"])
-        st.session_state.df_habits.loc[st.session_state.df_habits["habit_id"] == habit_id, "total_completions"] += 1
-        st.session_state.df_habits.loc[st.session_state.df_habits["habit_id"] == habit_id, "last_completed"] = pd.Timestamp.now()
-        create_task_from_habit(habit_id, task["task"], task["recurrence"], task["category"])
-    save_data()
-
-def delete_task(task_id):
-    st.session_state.df_tasks = st.session_state.df_tasks[st.session_state.df_tasks["id"] != task_id]
-    save_data()
-
-def create_task_from_habit(habit_id, name, recurrence, category):
-    if recurrence == "daily":
-        deadline = datetime.now().replace(hour=23, minute=59)
-    elif recurrence == "weekly":
-        days = (6 - datetime.now().weekday()) % 7
-        deadline = (datetime.now() + timedelta(days=days)).replace(hour=23, minute=59)
-    else:
-        next_month = (datetime.now().replace(day=1) + timedelta(days=32)).replace(day=1)
-        deadline = next_month - timedelta(seconds=1)
-    prob = predict_prob({"priority": "Y", "task": name})
-    new_task = pd.DataFrame([{"id": st.session_state.task_id_counter, "task": name, "priority": "Y", "status": "Pending", 
-                              "created_at": pd.Timestamp.now(), "completed_at": pd.NaT, "deadline": deadline, 
-                              "ai_prediction": round(prob * 100, 2), "category": category, "tags": f"habit,{recurrence}", 
-                              "habit_id": habit_id, "recurrence": recurrence, "assigned_to": st.session_state.current_user, 
-                              "created_by": st.session_state.current_user, "shared": False}])
-    st.session_state.df_tasks = pd.concat([st.session_state.df_tasks, new_task], ignore_index=True)
-    st.session_state.task_id_counter += 1
-
-def clock_in_task(task_id):
-    st.session_state.clocked_in = True
-    st.session_state.clock_in_time = datetime.now()
-    st.session_state.current_task_id = task_id
-
-def clock_out_task():
-    if st.session_state.clocked_in:
-        clock_out_time = datetime.now()
-        duration = (clock_out_time - st.session_state.clock_in_time).total_seconds() / 60
-        task = st.session_state.df_tasks[st.session_state.df_tasks["id"] == st.session_state.current_task_id].iloc[0]
-        new_ts = pd.DataFrame([{"timesheet_id": st.session_state.timesheet_id_counter, "username": st.session_state.current_user, 
-                               "task_id": st.session_state.current_task_id, "task_name": task["task"], 
-                               "clock_in": st.session_state.clock_in_time, "clock_out": clock_out_time, 
-                               "duration_minutes": round(duration, 2)}])
-        st.session_state.df_timesheet = pd.concat([st.session_state.df_timesheet, new_ts], ignore_index=True)
-        st.session_state.timesheet_id_counter += 1
-        save_data()
-        st.session_state.clocked_in = False
-        st.session_state.clock_in_time = None
-        st.session_state.current_task_id = None
-
-def show_login():
-    st.markdown("<div style='text-align: center; padding: 4rem 2rem;'><div style='font-size: 5rem;'>🎯</div><h1>ASSAN</h1><p>Productivity Studio - 32 Features</p></div>", unsafe_allow_html=True)
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        username = st.text_input("Enter your name:", placeholder="Your name...")
-        if st.button("🚀 Start", type="primary", use_container_width=True):
-            if username.strip():
-                st.session_state.current_user = username.strip()
-                if username not in st.session_state.df_users["username"].values:
-                    new_user = pd.DataFrame([{"username": username, "role": "owner", "added_at": pd.Timestamp.now(), "added_by": "self"}])
-                    st.session_state.df_users = pd.concat([st.session_state.df_users, new_user], ignore_index=True)
-                    save_data()
-                st.rerun()
-
-def show_main_app():
-    with st.sidebar:
-        st.markdown(f"## 👤 {st.session_state.current_user}")
-        my_tasks = get_my_tasks()
-        total = len(my_tasks)
-        completed = len(my_tasks[my_tasks["status"] == "Completed"])
-        col1, col2 = st.columns(2)
-        col1.metric("Tasks", total)
-        col2.metric("Done", completed)
-        if total > 0:
-            st.progress(completed / total)
-        if st.session_state.clocked_in:
-            elapsed = (datetime.now() - st.session_state.clock_in_time).total_seconds() / 60
-            st.success(f"⏰ Clocked In: {round(elapsed, 1)} min")
-        
-        menu = st.radio("", ["🏠 Dashboard", "➕ Add Task", "📝 View Tasks", "🗑️ Remove", "✅ Complete", "✏️ Edit", "🔍 Filter", 
-                            "📊 Chart", "📅 Weekly", "🏆 Top Days", "📈 Trend", "🎯 Smart Trend", "🤖 AI Plan", "🔔 Reminders", 
-                            "📂 By Category", "🔎 Search Tags", "📋 Cat Summary", "🔥 Create Habit", "🔥 View Habits", "🏅 Habit Dash", 
-                            "👥 Add Member", "👥 View Team", "📤 Assign", "📥 My Assigned", "💬 Comment", "📊 Team Dash", "🧠 Train AI", 
-                            "📥 Export CSV", "📊 Export Excel", "📄 Gen PDF", "📧 Email", "📁 List Files", "⏰ Timesheet", "⚙️ Settings"], 
-                       label_visibility="collapsed")
-        
-        if st.button("🚪 Logout"):
-            if not st.session_state.clocked_in:
-                st.session_state.current_user = None
-                st.rerun()
-            else:
-                st.warning("Clock out first!")
-    
-    if menu == "🏠 Dashboard":
-        show_dashboard()
-    elif menu == "➕ Add Task":
-        show_add_task()
-    elif menu == "📝 View Tasks":
-        show_view_tasks()
-    elif menu == "🗑️ Remove":
-        show_remove()
-    elif menu == "✅ Complete":
-        show_complete()
-    elif menu == "✏️ Edit":
-        show_edit()
-    elif menu == "🔍 Filter":
-        show_filter()
-    elif menu == "📊 Chart":
-        show_chart()
-    elif menu == "📅 Weekly":
-        show_weekly()
-    elif menu == "🏆 Top Days":
-        show_top_days()
-    elif menu == "📈 Trend":
-        show_trend()
-    elif menu == "🎯 Smart Trend":
-        show_smart_trend()
-    elif menu == "🤖 AI Plan":
-        show_ai_plan()
-    elif menu == "🔔 Reminders":
-        show_reminders()
-    elif menu == "📂 By Category":
-        show_by_category()
-    elif menu == "🔎 Search Tags":
-        show_search_tags()
-    elif menu == "📋 Cat Summary":
-        show_cat_summary()
-    elif menu == "🔥 Create Habit":
-        show_create_habit()
-    elif menu == "🔥 View Habits":
-        show_view_habits()
-    elif menu == "🏅 Habit Dash":
-        show_habit_dash()
-    elif menu == "👥 Add Member":
-        show_add_member()
-    elif menu == "👥 View Team":
-        show_view_team()
-    elif menu == "📤 Assign":
-        show_assign()
-    elif menu == "📥 My Assigned":
-        show_my_assigned()
-    elif menu == "💬 Comment":
-        show_comment()
-    elif menu == "📊 Team Dash":
-        show_team_dash()
-    elif menu == "🧠 Train AI":
-        show_train_ai()
-    elif menu == "📥 Export CSV":
-        show_export_csv()
-    elif menu == "📊 Export Excel":
-        show_export_excel()
-    elif menu == "📄 Gen PDF":
-        show_gen_pdf()
-    elif menu == "📧 Email":
-        show_email()
-    elif menu == "📁 List Files":
-        show_list_files()
-    elif menu == "⏰ Timesheet":
-        show_timesheet()
-    elif menu == "⚙️ Settings":
-        show_settings()
-
-# 1. Dashboard
-def show_dashboard():
-    st.title("🏠 Dashboard")
-    my_tasks = get_my_tasks()
-
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Total", len(my_tasks))
-    col2.metric("Done", len(my_tasks[my_tasks["status"] == "Completed"]))
-    col3.metric("Pending", len(my_tasks[my_tasks["status"] == "Pending"]))
-    col4.metric("Priority", len(my_tasks[my_tasks["priority"] == "Y"]))
-
-    st.write("Recent tasks:")
-    for _, t in my_tasks.head(5).iterrows():
-        st.markdown(
-            f"<div class='task-card'>{'✅' if t['status']=='Completed' else '⏳'} "
-            f"#{int(t['id'])} {t['task']}</div>",
-            unsafe_allow_html=True
-        )
-
-    # --- FIXED: Button MUST be inside the function ---
-    if st.button("Go to Menu"):
-        st.session_state.current_page = "menu"
-        st.rerun()
-
-
-
-# 2. Add Task with Clock In/Out
-def show_add_task():
-    st.title("➕ Add Task")
-    with st.form("add_form"):
-        name = st.text_input("Task Name")
-        col1, col2 = st.columns(2)
-        priority = col1.selectbox("Priority", ["Normal", "High"])
-        category = col2.selectbox("Category", list(CATEGORIES.keys()))
-        col1, col2 = st.columns(2)
-        deadline_date = col1.date_input("Deadline", value=None)
-        deadline_time = col2.time_input("Time")
-        tags = st.text_input("Tags (comma separated)")
-        if st.form_submit_button("Add Task"):
-            if name.strip():
-                deadline_dt = datetime.combine(deadline_date, deadline_time) if deadline_date else pd.NaT
-                new = pd.DataFrame([{"id": st.session_state.task_id_counter, "task": name, 
-                                    "priority": "Y" if priority == "High" else "N", "status": "Pending", 
-                                    "created_at": pd.Timestamp.now(), "completed_at": pd.NaT, "deadline": deadline_dt, 
-                                    "ai_prediction": predict_prob({"priority": "Y" if priority == "High" else "N", "task": name}) * 100, 
-                                    "category": category, "tags": tags, "habit_id": np.nan, "recurrence": "none", 
-                                    "assigned_to": st.session_state.current_user, "created_by": st.session_state.current_user, "shared": False}])
-                st.session_state.df_tasks = pd.concat([st.session_state.df_tasks, new], ignore_index=True)
-                st.session_state.task_id_counter += 1
-                save_data()
-                st.success("✅ Added!")
-                time.sleep(1)
-                st.rerun()
-    
-    st.markdown("---")
-    st.subheader("⏰ Clock In/Out")
-    pending = get_my_tasks()[get_my_tasks()["status"] == "Pending"]
-    if not pending.empty:
-        if not st.session_state.clocked_in:
-            opts = {f"#{int(r['id'])} - {r['task']}": int(r['id']) for _, r in pending.iterrows()}
-            sel = st.selectbox("Select task:", list(opts.keys()))
-            if st.button("🟢 Clock In", use_container_width=True):
-                clock_in_task(opts[sel])
-                st.success("Clocked in!")
-                time.sleep(0.5)
-                st.rerun()
-        else:
-            task = st.session_state.df_tasks[st.session_state.df_tasks["id"] == st.session_state.current_task_id].iloc[0]
-            elapsed = (datetime.now() - st.session_state.clock_in_time).total_seconds() / 60
-            st.info(f"⏰ Working on: {task['task']}\nTime: {round(elapsed, 2)} minutes")
-            if st.button("🔴 Clock Out", use_container_width=True):
-                clock_out_task()
-                st.success("Clocked out!")
-                time.sleep(0.5)
-                st.rerun()
-
-# 3. View Tasks
-def show_view_tasks():
-    st.title("📝 View Tasks")
-    my_tasks = get_my_tasks()
-    if my_tasks.empty:
-        st.info("No tasks yet")
-    else:
-        for _, t in my_tasks.iterrows():
-            st.markdown(f"<div class='task-card'>{'✅' if t['status']=='Completed' else '⏳'} <strong>#{int(t['id'])} {t['task']}</strong><br>{CATEGORIES[t['category']]} {t['category']} | AI: {t['ai_prediction']:.0f}% | {time_left_str(t['deadline'])}</div>", unsafe_allow_html=True)
-
-# 4. Remove
-def show_remove():
-    st.title("🗑️ Remove Task")
-    my_tasks = get_my_tasks()
-    if my_tasks.empty:
-        st.info("No tasks")
-    else:
-        opts = {f"#{int(r['id'])} - {r['task']}": int(r['id']) for _, r in my_tasks.iterrows()}
-        sel = st.selectbox("Task:", list(opts.keys()))
-        if st.button("Delete"):
-            delete_task(opts[sel])
-            st.success("Deleted!")
-            time.sleep(1)
-            st.rerun()
-
-# 5. Complete
-def show_complete():
-    st.title("✅ Complete Task")
-    pending = get_my_tasks()[get_my_tasks()["status"] == "Pending"]
-    if pending.empty:
-        st.success("All done!")
-    else:
-        opts = {f"#{int(r['id'])} - {r['task']}": int(r['id']) for _, r in pending.iterrows()}
-        sel = st.selectbox("Task:", list(opts.keys()))
-        if st.button("Mark Complete"):
-            complete_task(opts[sel])
-            st.success("Done!")
-            time.sleep(1)
-            st.rerun()
-
-# 6. Edit
-def show_edit():
-    st.title("✏️ Edit Task")
-    my_tasks = get_my_tasks()
-    if my_tasks.empty:
-        st.info("No tasks")
-    else:
-        opts = {f"#{int(r['id'])} - {r['task']}": int(r['id']) for _, r in my_tasks.iterrows()}
-        sel = st.selectbox("Task:", list(opts.keys()))
-        if sel:
-            tid = opts[sel]
-            task = my_tasks[my_tasks["id"] == tid].iloc[0]
-            with st.form("edit"):
-                new_name = st.text_input("Name", value=task['task'])
-                new_priority = st.selectbox("Priority", ["Normal", "High"], index=0 if task['priority'] == 'N' else 1)
-                if st.form_submit_button("Save"):
-                    st.session_state.df_tasks.loc[st.session_state.df_tasks["id"] == tid, "task"] = new_name
-                    st.session_state.df_tasks.loc[st.session_state.df_tasks["id"] == tid, "priority"] = "Y" if new_priority == "High" else "N"
-                    save_data()
-                    st.success("Updated!")
-                    time.sleep(1)
-                    st.rerun()
-
-# 7. Filter
-def show_filter():
-    st.title("🔍 Filter Tasks")
-    my_tasks = get_my_tasks()
-    col1, col2, col3 = st.columns(3)
-    status = col1.selectbox("Status", ["All", "Pending", "Completed"])
-    priority = col2.selectbox("Priority", ["All", "High", "Normal"])
-    category = col3.selectbox("Category", ["All"] + list(CATEGORIES.keys()))
-    
-    filtered = my_tasks.copy()
-    if status != "All":
-        filtered = filtered[filtered["status"] == status]
-    if priority != "All":
-        filtered = filtered[filtered["priority"] == ("Y" if priority == "High" else "N")]
-    if category != "All":
-        filtered = filtered[filtered["category"] == category]
-    
-    st.write(f"**{len(filtered)} tasks found**")
-    for _, t in filtered.iterrows():
-        st.markdown(f"<div class='task-card'>#{int(t['id'])} {t['task']} - {t['status']}</div>", unsafe_allow_html=True)
-
-# 8. Chart
-def show_chart():
-    st.title("📊 Productivity Chart")
-    my_tasks = get_my_tasks()
-    if my_tasks.empty:
-        st.info("No data")
-    else:
-        summary = my_tasks.groupby("category").agg({"status": ["count", lambda x: (x == "Completed").sum()]}).reset_index()
-        summary.columns = ["Category", "Total", "Completed"]
-        summary["Rate %"] = (summary["Completed"] / summary["Total"] * 100).round(1)
-        st.dataframe(summary, use_container_width=True)
-
-# 9. Weekly
-def show_weekly():
-    st.title("📅 Weekly Summary")
-    my_tasks = get_my_tasks()
-    week_start = datetime.now() - timedelta(days=7)
-    week_tasks = my_tasks[my_tasks["created_at"] >= week_start]
-    total = len(week_tasks)
-    completed = len(week_tasks[week_tasks["status"] == "Completed"])
-    rate = (completed / total * 100) if total > 0 else 0
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Created", total)
-    col2.metric("Completed", completed)
-    col3.metric("Rate", f"{rate:.1f}%")
-
-# 10. Top Days
-def show_top_days():
-    st.title("🏆 Top Productive Days")
-    my_tasks = get_my_tasks()
-    completed = my_tasks[my_tasks["status"] == "Completed"].copy()
-    if not completed.empty:
-        completed["date"] = completed["completed_at"].dt.date
-        daily = completed.groupby("date").size().reset_index(name="Tasks")
-        top = daily.sort_values("Tasks", ascending=False).head(5)
-        for i, row in top.iterrows():
-            medal = "🥇" if i == 0 else "🥈" if i == 1 else "🥉" if i == 2 else "🏅"
-            st.write(f"{medal} {row['date']}: {row['Tasks']} tasks")
-    else:
-        st.info("No completed tasks")
-
-# 11. Trend
-def show_trend():
-    st.title("📈 Productivity Trend")
-    my_tasks = get_my_tasks()
-    completed = my_tasks[my_tasks["status"] == "Completed"].copy()
-    if not completed.empty:
-        completed["date"] = completed["completed_at"].dt.date
-        daily = completed.groupby("date").size().reset_index(name="count")
-        fig, ax = plt.subplots()
-        ax.plot(daily["date"], daily["count"], marker='o')
-        ax.set_xlabel("Date")
-        ax.set_ylabel("Tasks")
-        st.pyplot(fig)
-    else:
-        st.info("No data")
-
-# 12. Smart Trend
-def show_smart_trend():
-    st.title("🎯 Smart Analysis")
-    my_tasks = get_my_tasks()
-    total = len(my_tasks)
-    completed = len(my_tasks[my_tasks["status"] == "Completed"])
-    rate = (completed / total * 100) if total > 0 else 0
-    st.metric("Completion Rate", f"{rate:.1f}%")
-    if rate >= 70:
-        st.success("Excellent!")
-    elif rate >= 50:
-        st.info("Good progress!")
-    else:
-        st.warning("Need improvement")
-
-# 13. AI Plan
-def show_ai_plan():
-    st.title("🤖 AI Daily Plan")
-    my_tasks = get_my_tasks()
-    pending = my_tasks[my_tasks["status"] == "Pending"]
-    if pending.empty:
-        st.success("All caught up!")
-    else:
-        top = pending.sort_values("ai_prediction", ascending=False).head(5)
-        st.write("**Top 5 recommended tasks:**")
-        for i, (_, t) in enumerate(top.iterrows(), 1):
-            st.write(f"{i}. {t['task']} - AI: {t['ai_prediction']:.0f}% | {time_left_str(t['deadline'])}")
-
-# 14. Reminders
-def show_reminders():
-    st.title("🔔 Reminders")
-    my_tasks = get_my_tasks()
-    pending = my_tasks[my_tasks["status"] == "Pending"]
-    urgent = []
-    for _, t in pending.iterrows():
-        if not pd.isna(t["deadline"]):
-            diff = (t["deadline"] - pd.Timestamp.now()).total_seconds()
-            if diff <= 0:
-                urgent.append(("OVERDUE", t))
-            elif diff <= 3600:
-                urgent.append(("URGENT", t))
-    if urgent:
-        for label, t in urgent:
-            st.error(f"{label}: {t['task']}")
-    else:
-        st.success("No urgent reminders")
-
-# 15. By Category
-def show_by_category():
-    st.title("📂 Tasks by Category")
-    my_tasks = get_my_tasks()
-    for cat in CATEGORIES:
-        cat_tasks = my_tasks[my_tasks["category"] == cat]
-        if not cat_tasks.empty:
-            st.subheader(f"{CATEGORIES[cat]} {cat}")
-            for _, t in cat_tasks.iterrows():
-                st.write(f"#{int(t['id'])} {t['task']} - {t['status']}")
-
-# 16. Search Tags
-def show_search_tags():
-    st.title("🔎 Search by Tags")
-    my_tasks = get_my_tasks()
-    tag = st.text_input("Enter tag:")
-    if tag:
-        filtered = my_tasks[my_tasks["tags"].str.contains(tag, case=False, na=False)]
-        st.write(f"**{len(filtered)} tasks found**")
-        for _, t in filtered.iterrows():
-            st.write(f"#{int(t['id'])} {t['task']}")
-
-# 17. Category Summary
-def show_cat_summary():
-    st.title("📋 Category Summary")
-    my_tasks = get_my_tasks()
-    if my_tasks.empty:
-        st.info("No tasks")
-    else:
-        summary = my_tasks.groupby("category").agg({"status": ["count", lambda x: (x == "Completed").sum()]}).reset_index()
-        summary.columns = ["Category", "Total", "Completed"]
-        summary["Rate %"] = (summary["Completed"] / summary["Total"] * 100).round(1)
-        st.dataframe(summary, use_container_width=True)
-
-# 18. Create Habit
-def show_create_habit():
-    st.title("🔥 Create Habit")
-    with st.form("habit_form"):
-        name = st.text_input("Habit Name")
-        col1, col2 = st.columns(2)
-        recurrence = col1.selectbox("Frequency", ["daily", "weekly", "monthly"])
-        category = col2.selectbox("Category", list(CATEGORIES.keys()))
-        if st.form_submit_button("Create"):
-            if name.strip():
-                new = pd.DataFrame([{"habit_id": st.session_state.habit_id_counter, "habit_name": name, "recurrence": recurrence, 
-                                    "category": category, "active": True, "created_at": pd.Timestamp.now(), 
-                                    "last_completed": pd.NaT, "total_completions": 0}])
-                st.session_state.df_habits = pd.concat([st.session_state.df_habits, new], ignore_index=True)
-                create_task_from_habit(st.session_state.habit_id_counter, name, recurrence, category)
-                st.session_state.habit_id_counter += 1
-                save_data()
-                st.success("Created!")
-                time.sleep(1)
-                st.rerun()
-
-# 19. View Habits
-def show_view_habits():
-    st.title("🔥 View Habits")
-    active = st.session_state.df_habits[st.session_state.df_habits["active"] == True]
-    if active.empty:
-        st.info("No habits")
-    else:
-        for _, h in active.iterrows():
-            streak = calculate_streak(int(h["habit_id"]))
-            st.write(f"#{int(h['habit_id'])} {h['habit_name']} - {h['recurrence']} - 🔥 {streak} streak")
-
-# 20. Habit Dashboard
-def show_habit_dash():
-    st.title("🏅 Habit Dashboard")
-    active = st.session_state.df_habits[st.session_state.df_habits["active"] == True]
-    if active.empty:
-        st.info("No habits")
-    else:
-        for i, (_, h) in enumerate(active.iterrows()):
-            streak = calculate_streak(int(h["habit_id"]))
-            medal = "🥇" if i == 0 else "🥈" if i == 1 else "🥉" if i == 2 else "🏅"
-            st.write(f"{medal} {h['habit_name']}: {streak} streak ({int(h['total_completions'])} total)")
-
-# 21. Add Member
-def show_add_member():
-    st.title("👥 Add Team Member")
-    with st.form("member_form"):
-        username = st.text_input("Username")
-        role = st.selectbox("Role", ["member", "manager"])
-        if st.form_submit_button("Add"):
-            if username.strip() and username not in st.session_state.df_users["username"].values:
-                new = pd.DataFrame([{"username": username, "role": role, "added_at": pd.Timestamp.now(), 
-                                    "added_by": st.session_state.current_user}])
-                st.session_state.df_users = pd.concat([st.session_state.df_users, new], ignore_index=True)
-                save_data()
-                st.success(f"Added {username}")
-                time.sleep(1)
-                st.rerun()
-
-# 22. View Team
-def show_view_team():
-    st.title("👥 View Team")
-    if st.session_state.df_users.empty:
-        st.info("No members")
-    else:
-        for _, u in st.session_state.df_users.iterrows():
-            user_tasks = st.session_state.df_tasks[st.session_state.df_tasks["assigned_to"] == u["username"]]
-            st.write(f"{u['username']} ({u['role']}): {len(user_tasks)} tasks")
-
-# 23. Assign
-def show_assign():
-    st.title("📤 Assign Task")
-    my_tasks = get_my_tasks()
-    if my_tasks.empty or len(st.session_state.df_users) <= 1:
-        st.info("Add tasks and team members first")
-    else:
-        task_opts = {f"#{int(r['id'])} - {r['task']}": int(r['id']) for _, r in my_tasks.iterrows()}
-        task_sel = st.selectbox("Task:", list(task_opts.keys()))
-        user_opts = st.session_state.df_users["username"].tolist()
-        user_sel = st.selectbox("Assign to:", user_opts)
-        if st.button("Assign"):
-            st.session_state.df_tasks.loc[st.session_state.df_tasks["id"] == task_opts[task_sel], "assigned_to"] = user_sel
-            st.session_state.df_tasks.loc[st.session_state.df_tasks["id"] == task_opts[task_sel], "shared"] = True
-            save_data()
-            st.success("Assigned!")
-            time.sleep(1)
-            st.rerun()
-
-# 24. My Assigned
-def show_my_assigned():
-    st.title("📥 My Assigned Tasks")
-    show_view_tasks()
-
-# 25. Comment
-def show_comment():
-    st.title("💬 Comments")
-    my_tasks = get_my_tasks()
-    if my_tasks.empty:
-        st.info("No tasks")
-    else:
-        task_opts = {f"#{int(r['id'])} - {r['task']}": int(r['id']) for _, r in my_tasks.iterrows()}
-        task_sel = st.selectbox("Task:", list(task_opts.keys()))
-        task_id = task_opts[task_sel]
-        
-        comments = st.session_state.df_comments[st.session_state.df_comments["task_id"] == task_id]
-        if not comments.empty:
-            for _, c in comments.iterrows():
-                st.info(f"**{c['username']}** ({c['timestamp'].strftime('%Y-%m-%d %H:%M')}): {c['comment']}")
-        
-        with st.form("comment_form"):
-            new_comment = st.text_area("Add comment:")
-            if st.form_submit_button("Add"):
-                if new_comment.strip():
-                    new = pd.DataFrame([{"comment_id": st.session_state.comment_id_counter, "task_id": task_id, 
-                                        "username": st.session_state.current_user, "comment": new_comment, 
-                                        "timestamp": pd.Timestamp.now()}])
-                    st.session_state.df_comments = pd.concat([st.session_state.df_comments, new], ignore_index=True)
-                    st.session_state.comment_id_counter += 1
-                    save_data()
-                    st.success("Added!")
-                    time.sleep(1)
-                    st.rerun()
-
-# 26. Team Dashboard
-def show_team_dash():
-    st.title("📊 Team Dashboard")
-    if len(st.session_state.df_users) <= 1:
-        st.info("Add team members")
-    else:
-        stats = []
-        for _, u in st.session_state.df_users.iterrows():
-            user_tasks = st.session_state.df_tasks[st.session_state.df_tasks["assigned_to"] == u["username"]]
-            total = len(user_tasks)
-            completed = len(user_tasks[user_tasks["status"] == "Completed"])
-            rate = (completed / total * 100) if total > 0 else 0
-            stats.append({"Member": u["username"], "Total": total, "Completed": completed, "Rate %": round(rate, 1)})
-        df = pd.DataFrame(stats)
-        st.dataframe(df, use_container_width=True)
-
-# 27. Train AI
-def show_train_ai():
-    st.title("🧠 Train AI Model")
-    my_tasks = get_my_tasks()
-    completed = my_tasks[my_tasks["status"] == "Completed"]
-    st.write(f"**Training data:** {len(completed)} completed tasks")
-    if len(completed) < 10:
-        st.warning("Need 10+ completed tasks")
-    else:
-        if st.button("Train Model"):
-            d = my_tasks.copy()
-            d["priority_num"] = d["priority"].map({"Y": 1, "N": 0}).fillna(0).astype(int)
-            d["task_len"] = d["task"].astype(str).apply(len)
-            d["completed"] = (d["status"] == "Completed").astype(int)
-            X = d[["priority_num", "task_len"]]
-            y = d["completed"]
-            if len(y.unique()) >= 2:
-                model = LogisticRegression(max_iter=200)
-                model.fit(X, y)
-                st.session_state.trained_model = model
-                for idx, row in st.session_state.df_tasks.iterrows():
-                    prob = predict_prob(row)
-                    st.session_state.df_tasks.at[idx, "ai_prediction"] = round(prob * 100, 2)
-                save_data()
-                st.success("✅ Model trained!")
-
-# 28. Export CSV
-def show_export_csv():
-    st.title("📥 Export CSV")
-    my_tasks = get_my_tasks()
-    csv = my_tasks.to_csv(index=False)
-    st.download_button("⬇️ Download CSV", csv, f"assan_{datetime.now().strftime('%Y%m%d')}.csv", "text/csv", use_container_width=True)
-    st.success(f"Ready to export {len(my_tasks)} tasks")
-
-# 29. Export Excel
-def show_export_excel():
-    st.title("📊 Export Excel")
-    my_tasks = get_my_tasks()
-    try:
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            my_tasks.to_excel(writer, sheet_name='Tasks', index=False)
-        output.seek(0)
-        st.download_button("⬇️ Download Excel", output, f"assan_{datetime.now().strftime('%Y%m%d')}.xlsx", 
-                          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
-        st.success(f"Ready to export {len(my_tasks)} tasks")
-    except:
-        st.error("openpyxl not installed")
-
-# 30. Generate PDF
-def show_gen_pdf():
-    st.title("📄 Generate PDF")
-    st.info("PDF generation requires reportlab library. Use CSV/Excel for now.")
-
-# 31. Email
-def show_email():
-    st.title("📧 Email Summary")
-    my_tasks = get_my_tasks()
-    total = len(my_tasks)
-    completed = len(my_tasks[my_tasks["status"] == "Completed"])
-    rate = (completed / total * 100) if total > 0 else 0
-    summary = f"""
-ASSAN PRODUCTIVITY SUMMARY
-
-User: {st.session_state.current_user}
-Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}
-
-Statistics:
-• Total Tasks: {total}
-• Completed: {completed}
-• Pending: {total - completed}
-• Completion Rate: {rate:.1f}%
-
-Copy this summary to email!
-    """
-    st.text_area("Summary", summary, height=300)
-
-# 32. List Files
-def show_list_files():
-    st.title("📁 List Export Files")
-    files = glob.glob('export_*.csv') + glob.glob('export_*.xlsx') + glob.glob('report_*.pdf')
-    if files:
-        st.write("**Export files:**")
-        for f in files:
-            st.write(f"📄 {f}")
-    else:
-        st.info("No export files yet")
-
-# 33. Timesheet
-def show_timesheet():
-    st.title("⏰ Timesheet")
-    user_ts = st.session_state.df_timesheet[st.session_state.df_timesheet["username"] == st.session_state.current_user]
-    if user_ts.empty:
-        st.info("No time entries")
-    else:
-        total_min = user_ts["duration_minutes"].sum()
-        total_hrs = total_min / 60
-        col1, col2 = st.columns(2)
-        col1.metric("Total Hours", f"{total_hrs:.2f}h")
-        col2.metric("Total Minutes", f"{total_min:.0f}m")
-        st.write("**Time Entries:**")
-        for _, e in user_ts.sort_values("clock_in", ascending=False).iterrows():
-            st.markdown(f"""<div class='card'>
-            <p><strong>{e['task_name']}</strong></p>
-            <p>In: {e['clock_in'].strftime('%Y-%m-%d %H:%M')} | Out: {e['clock_out'].strftime('%H:%M')}</p>
-            <p>Duration: {e['duration_minutes']:.2f} min ({e['duration_minutes']/60:.2f} hrs)</p>
-            </div>""", unsafe_allow_html=True)
-
-# 34. Settings
-def show_settings():
-    st.title("⚙️ Settings")
-    my_tasks = get_my_tasks()
-    st.write(f"**User:** {st.session_state.current_user}")
-    st.write(f"**Total Tasks:** {len(my_tasks)}")
-    st.write(f"**Completed:** {len(my_tasks[my_tasks['status'] == 'Completed'])}")
-    st.write(f"**Active Habits:** {len(st.session_state.df_habits[st.session_state.df_habits['active'] == True])}")
-    if st.button("💾 Save All Data"):
-        save_data()
-        st.success("✅ Saved!")
-
-# ===============================
-# 1. User Profile Page
-# ===============================
-def show_profile():
-    st.title("👤 Your Profile")
-    
-    st.write(f"**Username:** {st.session_state.current_user}")
-    
-    # Editable display name
-    new_name = st.text_input("Display Name", value=st.session_state.current_user or "")
-    
-    if st.button("💾 Save Profile"):
-        if new_name.strip():
-            st.session_state.current_user = new_name.strip()
-            st.success("✅ Profile updated!")
-
-    # Back to dashboard
-    st.divider()
-    if st.button("🏠 Back to Dashboard"):
-        st.session_state.page = "dashboard"
-        st.experimental_rerun()
-
-
-# ===============================
-# 2. Main App Controller
-# ===============================
-def main():
-    # Load data if tasks are empty but file exists
-    if st.session_state.df_tasks.empty and os.path.exists(DATA_FILE):
-        load_data()
-
-    # Initialize page state
-    if "page" not in st.session_state:
-        st.session_state.page = "dashboard"
-
-    # User not logged in
-    if st.session_state.current_user is None:
-        show_login()
+def show_pending_reminders():
+    count = reminder_queue.qsize()
+    if count == 0:
+        print(f"{GREEN}✅ No pending reminders!{RESET}")
         return
+    print(f"\n{ORANGE}{'='*50}{RESET}\n{BOLD}{ORANGE}🔔 {count} ACTIVE REMINDER(S):{RESET}\n{ORANGE}{'='*50}{RESET}\n")
+    temp = []
+    while not reminder_queue.empty():
+        temp.append(reminder_queue.get())
+    for rem in temp:
+        tid, name, atype = rem["task_id"], rem["task_name"], rem["alert_type"]
+        if atype == "overdue":
+            print(f"{DEEP_RED}{BLINK}🔴 OVERDUE:{RESET} {DEEP_RED}Task #{tid}: {name}{RESET}")
+        elif atype == "urgent":
+            print(f"{DEEP_RED}🟠 URGENT (15 min):{RESET} {DEEP_RED}Task #{tid}: {name}{RESET}")
+        elif atype == "warning":
+            print(f"{YELLOW}🟡 WARNING (1 hour):{RESET} Task #{tid}: {name}")
+    print(f"\n{ORANGE}{'='*50}{RESET}")
+    for rem in temp:
+        reminder_queue.put(rem)
 
-    # ------------------------
-    # Page Router
-    # ------------------------
-    if st.session_state.page == "dashboard":
-        show_main_app()  # your existing dashboard/sidebar function
+# ---------- NN Helpers (existing) ----------
+def prepare_data_for_nn(df):
+    if df.empty or "status" not in df.columns:
+        return None, None, None
+    d = df.copy()
+    d["priority_num"] = d["priority"].map({"Y":1, "N":0}).fillna(0).astype(int)
+    d["task_len"] = d["task"].astype(str).apply(len)
+    d["days_to_deadline"] = (pd.to_datetime(d["deadline"], errors='coerce') - pd.Timestamp.now()).dt.total_seconds() / 86400
+    d["days_to_deadline"] = d["days_to_deadline"].fillna(0)
+    d["completed"] = (d["status"] == "Completed").astype(int)
+    cats = pd.get_dummies(d["category"], prefix="cat")
+    X = pd.concat([d[["priority_num", "task_len", "days_to_deadline"]], cats], axis=1)
+    y = d["completed"]
+    if len(y.unique()) < 2:
+        return None, None, None
+    scaler = StandardScaler()
+    X = scaler.fit_transform(X)
+    return X, y, scaler
 
-        st.divider()
-        st.subheader("🔙 Navigation")
-        if st.button("👤 Go to Profile"):
-            st.session_state.page = "profile"
-            st.experimental_rerun()
+def build_nn_model(input_dim):
+    model = Sequential([
+        Dense(16, activation='relu', input_dim=input_dim),
+        Dense(8, activation='relu'),
+        Dense(1, activation='sigmoid')
+    ])
+    model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+    return model
 
-    elif st.session_state.page == "profile":
-        show_profile()
+def tqdm_callback():
+    class TqdmCallback(tf.keras.callbacks.Callback):
+        def on_epoch_end(self, epoch, logs=None):
+            print(f"\rEpoch {epoch+1}/10", end='')
+    return TqdmCallback()
 
-    elif st.session_state.page == "settings":
-        show_settings()
+def plot_model_performance(history):
+    try:
+        plt.figure(figsize=(8, 5))
+        plt.plot(history.history['accuracy'], label='Accuracy', color='#00FF00')
+        plt.plot(history.history['val_accuracy'], label='Validation Accuracy', color='#00FFFF')
+        plt.plot(history.history['loss'], label='Loss', color='#FF0000')
+        plt.plot(history.history['val_loss'], label='Validation Loss', color='#FF9999')
+        plt.title("Neural Network Training Performance")
+        plt.xlabel("Epoch")
+        plt.ylabel("Metric")
+        plt.legend()
+        plt.grid(True)
+        plt.tight_layout()
+        plt.show()
+    except Exception:
+        pass
 
-        st.divider()
-        if st.button("🏠 Back to Dashboard"):
-            st.session_state.page = "dashboard"
-            st.experimental_rerun()
+def train_nn_model():
+    global df_tasks
+    X, y, scaler = prepare_data_for_nn(df_tasks)
+    if X is None:
+        print(f"{RED}❌ Not enough varied task data to train neural network (need completed and pending tasks){RESET}")
+        return None, None
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    model = build_nn_model(X.shape[1])
+    print(f"\n{BOLD}{MAGENTA}Training Neural Network...{RESET}")
+    history = model.fit(
+        X_train, y_train, epochs=10, batch_size=32,
+        validation_data=(X_test, y_test), verbose=0,
+        callbacks=[tqdm_callback()]
+    )
+    model.save(MODEL_FILE)
+    with open(SCALER_FILE, 'wb') as f:
+        pickle.dump(scaler, f)
+    print(f"\n{GREEN}✅ Neural network trained and saved! Accuracy: {history.history['accuracy'][-1]:.2%}{RESET}")
+    plot_model_performance(history)
+    return model, scaler
 
+def predict_nn_prob(model, scaler, row):
+    if model is None or scaler is None:
+        return 0.8 if str(row.get("priority", "N")).upper() == "Y" else 0.3
+    d = pd.DataFrame([{
+        "priority_num": 1 if str(row.get("priority", "N")).upper() == "Y" else 0,
+        "task_len": len(str(row.get("task", ""))),
+        "days_to_deadline": (parse_deadline_input(row.get("deadline", "")) - pd.Timestamp.now()).total_seconds() / 86400 if row.get("deadline") else 0,
+        "category": row.get("category", "Other")
+    }])
+    cats = pd.get_dummies(d["category"], prefix="cat")
+    # ensure all categories present
+    for c in CATEGORIES:
+        col = f"cat_{c}"
+        if col not in cats:
+            cats[col] = 0
+    d = pd.concat([d[["priority_num", "task_len", "days_to_deadline"]], cats[[f"cat_{c}" for c in CATEGORIES]]], axis=1)
+    X = scaler.transform(d)
+    return float(model.predict(X, verbose=0)[0][0])
 
-# ===============================
-# 3. Run App
-# ===============================
+# ---------- TASK MANAGEMENT (existing functions) ----------
+def add_task():
+    global df_tasks, task_id_counter
+    model = tf.keras.models.load_model(MODEL_FILE) if os.path.exists(MODEL_FILE) else None
+    scaler = pickle.load(open(SCALER_FILE, 'rb')) if os.path.exists(SCALER_FILE) else None
+    while True:
+        print(f"\n{BOLD}{MAGENTA}Add Task (type 'Home' to return to menu){RESET}\n{'─'*50}")
+        name = input("📝 Task: ").strip()
+        if name.lower() == "home":
+            print(f"\n{GREEN}Returning to main menu...{RESET}")
+            break
+        if not name:
+            print(f"{RED}❌ Empty task, please enter a task or type 'Home'{RESET}")
+            continue
+        priority = input("⚡ Priority (Y/N): ").strip().upper()
+        if priority not in ["Y", "N"]:
+            priority = "N"
+        deadline = input("📅 Deadline (e.g., 2025-12-31 23:59, empty for none): ").strip()
+        deadline_ts = parse_deadline_input(deadline)
+        print("\n📂 Category:")
+        cats = list(CATEGORIES.keys())
+        for i, c in enumerate(cats, 1):
+            print(f" {i}. {get_category_display(c)}")
+        cc = input("Number: ").strip()
+        category = cats[int(cc)-1] if cc.isdigit() and 1<=int(cc)<=len(cats) else "Other"
+        tags = input("🏷️ Tags (comma-separated, e.g., urgent,work): ").strip()
+        est = input("⏱ Estimated minutes (default 30): ").strip()
+        try:
+            est_min = int(est) if est else 30
+        except:
+            est_min = 30
+        prob = predict_nn_prob(model, scaler, {"priority": priority, "task": name, "deadline": deadline_ts, "category": category})
+        df_tasks = pd.concat([df_tasks, pd.DataFrame([{
+            "id": task_id_counter, "task": name, "priority": priority, "status": "Pending",
+            "created_at": pd.Timestamp.now(), "completed_at": pd.NaT, "deadline": deadline_ts,
+            "ai_prediction": round(prob*100,2), "category": category, "tags": tags,
+            "habit_id": np.nan, "recurrence": "none", "assigned_to": current_user,
+            "created_by": current_user, "shared": False, "estimated_minutes": est_min
+        }])], ignore_index=True)
+        df_tasks.to_csv(DATA_FILE, index=False)
+        task_id_counter += 1
+        print(f"\n{GREEN}✅ Added '{name}'! AI: {round(prob*100,2)}% likely to complete{RESET}")
+        # continue loop to allow multiple additions
+
+def view_tasks():
+    my = df_tasks[df_tasks["assigned_to"] == current_user]
+    if my.empty:
+        print(f"\n{GREEN}✅ No tasks!{RESET}")
+        return
+    print(f"\n{BOLD}{MAGENTA}📋 Your Tasks{RESET}\n{'='*60}")
+    for _, t in my.iterrows():
+        tid = int(t["id"])
+        stat = f"{GREEN}✅ Completed{RESET}" if t["status"] == "Completed" else f"{YELLOW}❌ Pending{RESET}"
+        pri = "⚡ High" if t["priority"] == "Y" else "Regular"
+        tleft, _ = time_left_parts(t["deadline"])
+        dl = f"{DEEP_RED}{tleft}{RESET}" if "OVERDUE" in tleft or "DEEP" in tleft else (f"{RED}{tleft}{RESET}" if "OVERDUE" in tleft else tleft)
+        tags = format_tags(parse_tags(t["tags"]))
+        cat = get_category_display(t["category"])
+        try:
+            ai_val = float(t.get("ai_prediction", np.nan))
+        except:
+            ai_val = np.nan
+        prob = f"{GREEN}✓ {ai_val}%{RESET}" if (not pd.isna(ai_val) and ai_val >= 50) else (f"{YELLOW}⚠️ {ai_val}%{RESET}" if not pd.isna(ai_val) else "")
+        print(f"#{tid} {t['task']} {tags}\n {cat} | {pri} | {stat} | Deadline: {dl} | AI: {prob}")
+    print("="*60)
+
+def remove_task():
+    global df_tasks
+    view_tasks()
+    if df_tasks.empty:
+        return
+    try:
+        tid = int(input("\nTask ID to remove: ").strip())
+        if tid not in df_tasks["id"].values:
+            print(f"{RED}❌ Task not found{RESET}")
+            return
+        task_name = df_tasks[df_tasks["id"] == tid]["task"].iloc[0]
+        df_tasks = df_tasks[df_tasks["id"] != tid]
+        df_tasks.to_csv(DATA_FILE, index=False)
+        print(f"\n{GREEN}✅ Removed '{task_name}'{RESET}")
+    except:
+        print(f"{RED}❌ Invalid ID{RESET}")
+
+def mark_task_completed():
+    global df_tasks, df_habits
+    view_tasks()
+    if df_tasks.empty:
+        return
+    try:
+        tid = int(input("\nTask ID to complete: ").strip())
+        if tid not in df_tasks["id"].values:
+            print(f"{RED}❌ Task not found{RESET}")
+            return
+        if df_tasks[df_tasks["id"] == tid]["status"].iloc[0] == "Completed":
+            print(f"{RED}❌ Already completed{RESET}")
+            return
+        df_tasks.loc[df_tasks["id"] == tid, "status"] = "Completed"
+        df_tasks.loc[df_tasks["id"] == tid, "completed_at"] = pd.Timestamp.now()
+        task = df_tasks[df_tasks["id"] == tid].iloc[0]
+        if not pd.isna(task["habit_id"]):
+            hid = int(task["habit_id"])
+            if hid in df_habits["habit_id"].values:
+                df_habits.loc[df_habits["habit_id"] == hid, "total_completions"] = df_habits.loc[df_habits["habit_id"] == hid, "total_completions"].fillna(0) + 1
+                df_habits.loc[df_habits["habit_id"] == hid, "last_completed"] = pd.Timestamp.now()
+                # create next instance from habit row
+                habit_row = df_habits[df_habits["habit_id"]==hid].iloc[0]
+                create_task_from_habit(hid, habit_row["habit_name"], habit_row["recurrence"], habit_row["category"])
+        df_tasks.to_csv(DATA_FILE, index=False)
+        df_habits.to_csv(HABITS_FILE, index=False)
+        print(f"\n{GREEN}✅ Marked '{task['task']}' as completed!{RESET}")
+    except Exception as e:
+        print(f"{RED}❌ Invalid ID: {e}{RESET}")
+
+def productivity_chart():
+    my = df_tasks[df_tasks["assigned_to"] == current_user]
+    if my.empty:
+        print(f"\n{YELLOW}⚠️ No tasks{RESET}")
+        return
+    summary = my.groupby("category").agg({
+        "status": ["count", lambda x: (x == "Completed").sum()]
+    }).reset_index()
+    summary.columns = ["Category", "Total", "Completed"]
+    summary["Pending"] = summary["Total"] - summary["Completed"]
+    try:
+        plt.figure(figsize=(8, 5))
+        bar_width = 0.35
+        x = np.arange(len(summary))
+        plt.bar(x - bar_width/2, summary["Completed"], bar_width, label="Completed", color="#00FF00")
+        plt.bar(x + bar_width/2, summary["Pending"], bar_width, label="Pending", color="#FF4444")
+        plt.xlabel("Category")
+        plt.ylabel("Tasks")
+        plt.title("Productivity Chart")
+        plt.xticks(x, summary["Category"])
+        plt.legend()
+        plt.tight_layout()
+        plt.show()
+    except Exception:
+        print(summary)
+
+def weekly_performance_summary():
+    my = df_tasks[df_tasks["assigned_to"] == current_user]
+    if my.empty:
+        print(f"\n{YELLOW}⚠️ No tasks{RESET}")
+        return
+    start = now_dt() - timedelta(days=7)
+    week = my[(pd.to_datetime(my["created_at"], errors='coerce') >= start)]
+    total = len(week)
+    completed = len(week[week["status"] == "Completed"])
+    rate = round((completed / total * 100) if total > 0 else 0, 1)
+    print(f"\n{BOLD}{MAGENTA}📅 Weekly Summary{RESET}\n{'='*50}")
+    print(f"Tasks: {total} | Completed: {GREEN}{completed}{RESET} | Rate: {rate}%")
+    print("="*50)
+
+def top_productive_days():
+    my = df_tasks[(df_tasks["assigned_to"] == current_user) & (df_tasks["status"] == "Completed")]
+    if my.empty:
+        print(f"\n{YELLOW}⚠️ No completed tasks{RESET}")
+        return
+    days = my.groupby(pd.to_datetime(my["completed_at"], errors='coerce').dt.date).size().reset_index(name="count")
+    days = days.sort_values("count", ascending=False).head(5)
+    print(f"\n{BOLD}{MAGENTA}🏆 Top Productive Days{RESET}\n{'='*50}")
+    for _, d in days.iterrows():
+        print(f"{d['completed_at']}: {GREEN}{d['count']} tasks{RESET}")
+    print("="*50)
+
+def edit_task():
+    global df_tasks
+    view_tasks()
+    if df_tasks.empty:
+        return
+    try:
+        tid = int(input("\nTask ID to edit: ").strip())
+        if tid not in df_tasks["id"].values:
+            print(f"{RED}❌ Task not found{RESET}")
+            return
+        task = df_tasks[df_tasks["id"] == tid].iloc[0]
+        print(f"\nEditing '{task['task']}'")
+        name = input(f"📝 New task (current: {task['task']}, Enter to keep): ").strip()
+        priority = input(f"⚡ Priority (current: {task['priority']}, Y/N or Enter to keep): ").strip().upper()
+        deadline = input(f"📅 Deadline (current: {task['deadline']}, e.g., 2025-12-31 23:59): ").strip()
+        print("\n📂 Category:")
+        cats = list(CATEGORIES.keys())
+        for i, c in enumerate(cats, 1):
+            print(f" {i}. {get_category_display(c)}")
+        cc = input(f"Number (current: {task['category']}): ").strip()
+        tags = input(f"🏷️ Tags (current: {task['tags']}): ").strip()
+        if name:
+            df_tasks.loc[df_tasks["id"] == tid, "task"] = name
+        if priority in ["Y", "N"]:
+            df_tasks.loc[df_tasks["id"] == tid, "priority"] = priority
+        if deadline:
+            df_tasks.loc[df_tasks["id"] == tid, "deadline"] = parse_deadline_input(deadline)
+        if cc.isdigit() and 1 <= int(cc) <= len(cats):
+            df_tasks.loc[df_tasks["id"] == tid, "category"] = cats[int(cc)-1]
+        if tags:
+            df_tasks.loc[df_tasks["id"] == tid, "tags"] = tags
+        # update AI prediction
+        model = tf.keras.models.load_model(MODEL_FILE) if os.path.exists(MODEL_FILE) else None
+        scaler = pickle.load(open(SCALER_FILE, 'rb')) if os.path.exists(SCALER_FILE) else None
+        prob = predict_nn_prob(model, scaler, {
+            "priority": df_tasks.loc[df_tasks["id"] == tid, "priority"].iloc[0],
+            "task": df_tasks.loc[df_tasks["id"] == tid, "task"].iloc[0],
+            "deadline": df_tasks.loc[df_tasks["id"] == tid, "deadline"].iloc[0],
+            "category": df_tasks.loc[df_tasks["id"] == tid, "category"].iloc[0]
+        })
+        df_tasks.loc[df_tasks["id"] == tid, "ai_prediction"] = round(prob*100,2)
+        df_tasks.to_csv(DATA_FILE, index=False)
+        print(f"\n{GREEN}✅ Updated task!{RESET}")
+    except Exception as e:
+        print(f"{RED}❌ Invalid input: {e}{RESET}")
+
+def filter_tasks():
+    my = df_tasks[df_tasks["assigned_to"] == current_user]
+    if my.empty:
+        print(f"\n{GREEN}✅ No tasks!{RESET}")
+        return
+    print(f"\n{BOLD}{MAGENTA}🔍 Filter Tasks{RESET}\n{'─'*50}")
+    print("1. Pending 2. Completed 3. High Priority 4. Category")
+    choice = input("Choose: ").strip()
+    if choice == "1":
+        filtered = my[my["status"] == "Pending"]
+    elif choice == "2":
+        filtered = my[my["status"] == "Completed"]
+    elif choice == "3":
+        filtered = my[my["priority"] == "Y"]
+    elif choice == "4":
+        print("\n📂 Category:")
+        cats = list(CATEGORIES.keys())
+        for i, c in enumerate(cats, 1):
+            print(f" {i}. {get_category_display(c)}")
+        cc = input("Number: ").strip()
+        category = cats[int(cc)-1] if cc.isdigit() and 1<=int(cc)<=len(cats) else "Other"
+        filtered = my[my["category"] == category]
+    else:
+        print(f"{RED}❌ Invalid choice{RESET}")
+        return
+    print(f"\n{BOLD}{MAGENTA}📋 Filtered Tasks{RESET}\n{'='*50}")
+    for _, t in filtered.iterrows():
+        tid = int(t["id"])
+        stat = f"{GREEN}✅ Completed{RESET}" if t["status"] == "Completed" else f"{YELLOW}❌ Pending{RESET}"
+        pri = "⚡ High" if t["priority"] == "Y" else "Regular"
+        tleft, _ = time_left_parts(t["deadline"])
+        dl = f"{DEEP_RED}{tleft}{RESET}" if "OVERDUE" in tleft else tleft
+        tags = format_tags(parse_tags(t["tags"]))
+        cat = get_category_display(t["category"])
+        prob = f"{GREEN}✓ {t['ai_prediction']}%{RESET}" if t["ai_prediction"] >= 50 else f"{YELLOW}⚠️ {t['ai_prediction']}%{RESET}"
+        print(f"#{tid} {t['task']} {tags}\n {cat} | {pri} | {stat} | Deadline: {dl} | AI: {prob}")
+    print("="*50)
+
+def productivity_trend():
+    my = df_tasks[(df_tasks["assigned_to"] == current_user) & (df_tasks["status"] == "Completed")]
+    if my.empty:
+        print(f"\n{YELLOW}⚠️ No completed tasks{RESET}")
+        return
+    days = my.groupby(pd.to_datetime(my["completed_at"], errors='coerce').dt.date).size().reset_index(name="count")
+    try:
+        plt.figure(figsize=(8, 5))
+        plt.plot(days["completed_at"], days["count"], marker='o', color="#00FF00")
+        plt.xlabel("Date")
+        plt.ylabel("Tasks Completed")
+        plt.title("Productivity Trend")
+        plt.grid(True)
+        plt.tight_layout()
+        plt.show()
+    except Exception:
+        print(days)
+
+def smart_productivity_trend():
+    my = df_tasks[df_tasks["assigned_to"] == current_user]
+    if my.empty:
+        print(f"\n{YELLOW}⚠️ No tasks{RESET}")
+        return
+    model = tf.keras.models.load_model(MODEL_FILE) if os.path.exists(MODEL_FILE) else None
+    scaler = pickle.load(open(SCALER_FILE, 'rb')) if os.path.exists(SCALER_FILE) else None
+    if model is None:
+        print(f"\n{YELLOW}⚠️ Train neural network first (option 27){RESET}")
+        return
+    days = my.groupby(pd.to_datetime(my["created_at"], errors='coerce').dt.date).size().reset_index(name="total")
+    comp = my[my["status"] == "Completed"].groupby(pd.to_datetime(my["completed_at"], errors='coerce').dt.date).size().reset_index(name="completed")
+    merged = pd.merge(days, comp, left_on="created_at", right_on="completed_at", how="left").fillna(0)
+    merged["rate"] = merged["completed"] / merged["total"] * 100
+    prob = predict_nn_prob(model, scaler, {"priority": "Y", "task": "Sample", "deadline": "", "category": "Other"}) * 100
+    print(f"\n{BOLD}{MAGENTA}📈 Smart Productivity Trend{RESET}\n{'='*50}")
+    print(f"Recent Rate: {round(merged['rate'].mean(), 1)}%")
+    print(f"AI Predicts: {GREEN}{round(prob, 1)}% completion for high-priority tasks{RESET}")
+    try:
+        plt.figure(figsize=(8, 5))
+        plt.plot(merged["created_at"], merged["rate"], marker='o', color="#00FF00")
+        plt.xlabel("Date")
+        plt.ylabel("Completion Rate (%)")
+        plt.title("Smart Productivity Trend")
+        plt.grid(True)
+        plt.tight_layout()
+        plt.show()
+    except Exception:
+        print(merged)
+
+def daily_ai_plan():
+    my = df_tasks[(df_tasks["assigned_to"] == current_user) & (df_tasks["status"] == "Pending")]
+    if my.empty:
+        print(f"\n{GREEN}✅ No pending tasks!{RESET}")
+        return
+    model = tf.keras.models.load_model(MODEL_FILE) if os.path.exists(MODEL_FILE) else None
+    scaler = pickle.load(open(SCALER_FILE, 'rb')) if os.path.exists(SCALER_FILE) else None
+    if model and scaler:
+        my = my.copy()
+        my["ai_prediction"] = my.apply(lambda row: predict_nn_prob(model, scaler, {
+            "priority": row["priority"],
+            "task": row["task"],
+            "deadline": row["deadline"],
+            "category": row["category"]
+        }) * 100, axis=1)
+        df_tasks.update(my[["id","ai_prediction"]].set_index("id"))
+        df_tasks.to_csv(DATA_FILE, index=False)
+    my = my.sort_values("ai_prediction", ascending=False)
+    print(f"\n{BOLD}{MAGENTA}📋 Daily AI Plan{RESET}\n{'='*50}")
+    for _, t in my.head(5).iterrows():
+        tid = int(t["id"])
+        tleft, _ = time_left_parts(t["deadline"])
+        dl = f"{DEEP_RED}{tleft}{RESET}" if "OVERDUE" in tleft else tleft
+        tags = format_tags(parse_tags(t["tags"]))
+        cat = get_category_display(t["category"])
+        prob = f"{GREEN}✓ {round(t['ai_prediction'],2)}%{RESET}" if t["ai_prediction"] >= 50 else f"{YELLOW}⚠️ {round(t['ai_prediction'],2)}%{RESET}"
+        print(f"#{tid} {t['task']} {tags}\n {cat} | Deadline: {dl} | AI: {prob}")
+    print("="*50)
+
+def view_tasks_by_category():
+    my = df_tasks[df_tasks["assigned_to"] == current_user]
+    if my.empty:
+        print(f"\n{GREEN}✅ No tasks!{RESET}")
+        return
+    print(f"\n{BOLD}{MAGENTA}📂 Tasks by Category{RESET}\n{'='*50}")
+    for cat in CATEGORIES:
+        cat_tasks = my[my["category"] == cat]
+        if not cat_tasks.empty:
+            print(f"\n{get_category_display(cat)}")
+            for _, t in cat_tasks.iterrows():
+                tid = int(t["id"])
+                stat = f"{GREEN}✅{RESET}" if t["status"] == "Completed" else f"{YELLOW}❌{RESET}"
+                tags = format_tags(parse_tags(t["tags"]))
+                print(f" #{tid} {t['task']} {tags} {stat}")
+    print("="*50)
+
+def search_tasks_by_tags():
+    my = df_tasks[df_tasks["assigned_to"] == current_user]
+    if my.empty:
+        print(f"\n{GREEN}✅ No tasks!{RESET}")
+        return
+    tag = input("\n🏷️ Tag to search: ").strip().lower()
+    filtered = my[my["tags"].apply(lambda x: tag in parse_tags(x))]
+    if filtered.empty:
+        print(f"\n{YELLOW}⚠️ No tasks with tag '{tag}'{RESET}")
+        return
+    print(f"\n{BOLD}{MAGENTA}🔍 Tasks with Tag '{tag}'{RESET}\n{'='*50}")
+    for _, t in filtered.iterrows():
+        tid = int(t["id"])
+        stat = f"{GREEN}✅ Completed{RESET}" if t["status"] == "Completed" else f"{YELLOW}❌ Pending{RESET}"
+        pri = "⚡ High" if t["priority"] == "Y" else "Regular"
+        tleft, _ = time_left_parts(t["deadline"])
+        dl = f"{DEEP_RED}{tleft}{RESET}" if "OVERDUE" in tleft else tleft
+        tags = format_tags(parse_tags(t["tags"]))
+        cat = get_category_display(t["category"])
+        prob = f"{GREEN}✓ {t['ai_prediction']}%{RESET}" if t["ai_prediction"] >= 50 else f"{YELLOW}⚠️ {t['ai_prediction']}%{RESET}"
+        print(f"#{tid} {t['task']} {tags}\n {cat} | {pri} | {stat} | Deadline: {dl} | AI: {prob}")
+    print("="*50)
+
+def category_summary():
+    my = df_tasks[df_tasks["assigned_to"] == current_user]
+    if my.empty:
+        print(f"\n{YELLOW}⚠️ No tasks{RESET}")
+        return
+    summary = my.groupby("category").agg({
+        "status": ["count", lambda x: (x == "Completed").sum()]
+    }).reset_index()
+    summary.columns = ["Category", "Total", "Completed"]
+    summary["Completion Rate (%)"] = (summary["Completed"] / summary["Total"] * 100).round(2)
+    print(f"\n{BOLD}{MAGENTA}📊 Category Summary{RESET}\n{'='*50}")
+    for _, s in summary.iterrows():
+        print(f"{get_category_display(s['Category'])}: {s['Total']} tasks | {GREEN}{s['Completed']} done{RESET} | {s['Completion Rate (%)']}%")
+    print("="*50)
+
+# ---------- HABITS (existing) ----------
+def create_task_from_habit(hid, name, rec, cat):
+    global df_tasks, task_id_counter
+    if rec == "daily":
+        dl = now_dt().replace(hour=23, minute=59, second=59, microsecond=0)
+    elif rec == "weekly":
+        days = (6 - now_dt().weekday()) % 7
+        dl = (now_dt() + timedelta(days=days)).replace(hour=23, minute=59, second=59, microsecond=0)
+    elif rec == "monthly":
+        nm = (now_dt().replace(day=1) + timedelta(days=32)).replace(day=1)
+        dl = nm - timedelta(seconds=1)
+    else:
+        dl = pd.NaT
+    model = tf.keras.models.load_model(MODEL_FILE) if os.path.exists(MODEL_FILE) else None
+    scaler = pickle.load(open(SCALER_FILE, 'rb')) if os.path.exists(SCALER_FILE) else None
+    prob = predict_nn_prob(model, scaler, {"priority":"Y","task":name,"deadline":dl,"category":cat})
+    df_tasks = pd.concat([df_tasks, pd.DataFrame([{
+        "id": task_id_counter, "task": name, "priority": "Y", "status": "Pending",
+        "created_at": pd.Timestamp.now(), "completed_at": pd.NaT, "deadline": dl,
+        "ai_prediction": round(prob*100,2), "category": cat, "tags": f"habit,{rec}",
+        "habit_id": hid, "recurrence": rec, "assigned_to": current_user,
+        "created_by": current_user, "shared": False, "estimated_minutes": 30
+    }])], ignore_index=True)
+    df_tasks.to_csv(DATA_FILE, index=False)
+    task_id_counter += 1
+
+def create_recurring_task():
+    global df_habits, habit_id_counter
+    print(f"\n{BOLD}{MAGENTA}Create Habit{RESET}\n{'─'*50}")
+    name = input("📝 Name: ").strip()
+    if not name:
+        print(f"{RED}❌ Empty name{RESET}")
+        return
+    print("\n🔄 1. Daily 2. Weekly 3. Monthly")
+    rc = input("Choose: ").strip()
+    rec = {"1":"daily","2":"weekly","3":"monthly"}.get(rc,"daily")
+    print("\n📂 Category:")
+    cats = list(CATEGORIES.keys())
+    for i,c in enumerate(cats,1):
+        print(f" {i}. {get_category_display(c)}")
+    cc = input("Number: ").strip()
+    cat = cats[int(cc)-1] if cc.isdigit() and 1<=int(cc)<=len(cats) else "Health"
+    df_habits = pd.concat([df_habits, pd.DataFrame([{
+        "habit_id": habit_id_counter, "habit_name": name, "recurrence": rec, "category": cat,
+        "active": True, "created_at": pd.Timestamp.now(), "last_completed": pd.NaT, "total_completions": 0
+    }])], ignore_index=True)
+    df_habits.to_csv(HABITS_FILE, index=False)
+    create_task_from_habit(habit_id_counter, name, rec, cat)
+    habit_id_counter += 1
+    print(f"\n{GREEN}✅ Created {RECURRENCE_TYPES[rec]['icon']} {RECURRENCE_TYPES[rec]['name']} habit: '{name}'{RESET}")
+
+def view_all_habits():
+    if df_habits.empty:
+        print(f"\n{YELLOW}⚠️ No habits yet{RESET}")
+        return
+    print(f"\n{BOLD}{MAGENTA}💪 Habits & Streaks{RESET}\n{'='*50}")
+    for _,h in df_habits.iterrows():
+        if not h["active"]:
+            continue
+        hid = int(h["habit_id"])
+        streak = calculate_streak(hid)
+        rd = RECURRENCE_TYPES[h["recurrence"]]["icon"]+" "+RECURRENCE_TYPES[h["recurrence"]]["name"]
+        sd = f"{GREEN}🔥 {streak} streak{RESET}" if streak>0 else f"{YELLOW}⚠️ Start streak!{RESET}"
+        print(f"\n{BOLD}#{hid} {h['habit_name']}{RESET}\n {rd} | {get_category_display(h['category'])}\n {sd} | Total: {int(h.get('total_completions',0))}")
+        tt = df_tasks[(df_tasks["habit_id"]==hid)&(pd.to_datetime(df_tasks["created_at"], errors='coerce').dt.date==now_dt().date())&(df_tasks["status"]=="Pending")]
+        print(f" {YELLOW}⚠️ No pending{RESET}" if tt.empty else f" {GREEN}✓ Task #{int(tt.iloc[0]['id'])}{RESET}")
+    print("="*50)
+
+def habit_dashboard():
+    if df_habits.empty:
+        print(f"\n{YELLOW}⚠️ No habits{RESET}")
+        return
+    print(f"\n{BOLD}{MAGENTA}📊 Habit Dashboard{RESET}\n{'='*50}")
+    ah = len(df_habits[df_habits["active"]==True])
+    tc = df_habits["total_completions"].sum() if "total_completions" in df_habits.columns else 0
+    print(f"\n{CYAN}Active Habits:{RESET} {ah}\n{CYAN}Total Completions:{RESET} {int(tc)}")
+    print(f"\n{BOLD}🏆 Streak Leaderboard:{RESET}")
+    streaks = [(h["habit_name"],calculate_streak(int(h["habit_id"])),h["recurrence"])
+               for _,h in df_habits.iterrows() if h["active"]]
+    streaks.sort(key=lambda x:x[1],reverse=True)
+    for i,(n,s,r) in enumerate(streaks[:5],1):
+        m = "🥇" if s>=7 else "🥈" if s>=3 else "🥉"
+        c = GREEN if s>=7 else YELLOW if s>=3 else CYAN
+        print(f" {m} {i}. {n} {RECURRENCE_TYPES[r]['icon']} - {c}{s} streak{RESET}")
+    print(f"\n{BOLD}📂 By Category:{RESET}")
+    if not df_habits.empty:
+        summary = df_habits.groupby("category")["total_completions"].sum().reset_index()
+        for _, s in summary.iterrows():
+            if s["total_completions"] > 0:
+                print(f" {get_category_display(s['category'])}: {int(s['total_completions'])}")
+        try:
+            plt.figure(figsize=(8, 5))
+            plt.bar(summary["category"], summary["total_completions"], color="#00FF00")
+            plt.xlabel("Category")
+            plt.ylabel("Total Completions")
+            plt.title("Habit Completions by Category")
+            plt.tight_layout()
+            plt.show()
+        except Exception:
+            pass
+    print("="*50)
+
+# ---------- TEAM (existing) ----------
+def add_team_member():
+    global df_users
+    print(f"\n{BOLD}{MAGENTA}Add Team Member{RESET}\n{'─'*50}")
+    un = input("👤 Username: ").strip()
+    if not un or un in df_users["username"].values:
+        print(f"{RED}❌ Invalid or existing username{RESET}")
+        return
+    print("\n1. Member 2. Manager")
+    rc = input("Choose: ").strip()
+    role = "manager" if rc=="2" else "member"
+    df_users = pd.concat([df_users, pd.DataFrame([{
+        "username": un, "role": role, "added_at": pd.Timestamp.now(), "added_by": current_user
+    }])], ignore_index=True)
+    df_users.to_csv(USERS_FILE, index=False)
+    print(f"\n{GREEN}✅ Added {get_user_color(un)}{un}{RESET} as {role}{RESET}")
+
+def view_team_members():
+    if df_users.empty:
+        print(f"\n{YELLOW}⚠️ No team members{RESET}")
+        return
+    print(f"\n{BOLD}{MAGENTA}🧑‍🤝‍🧑 Team Members{RESET}\n{'='*50}")
+    for _,u in df_users.iterrows():
+        un = u["username"]
+        ut = df_tasks[df_tasks["assigned_to"]==un]
+        tot = len(ut)
+        comp = len(ut[ut["status"]=="Completed"])
+        pend = tot-comp
+        rb = "👑" if u["role"]=="owner" else "⭐" if u["role"]=="manager" else "👤"
+        print(f"\n{rb} {get_user_color(un)}{BOLD}{un}{RESET} ({u['role']})\n Tasks: {tot} | {GREEN}{comp} done{RESET} | {YELLOW}{pend} pending{RESET}")
+    print("="*50)
+
+def assign_task_to_someone():
+    global df_tasks
+    my = df_tasks[(df_tasks["created_by"]==current_user)|(df_tasks["assigned_to"]==current_user)]
+    if my.empty:
+        print(f"\n{YELLOW}⚠️ No tasks{RESET}")
+        return
+    view_tasks()
+    try:
+        tid = int(input("\nTask ID: ").strip())
+        if tid not in df_tasks["id"].values:
+            print(f"{RED}❌ Task not found{RESET}")
+            return
+        print(f"\n{BOLD}Team:{RESET}")
+        for i,un in enumerate(df_users["username"].values,1):
+            print(f" {i}. {get_user_color(un)}{un}{RESET}")
+        ch = input("\nNumber: ").strip()
+        if not ch.isdigit() or int(ch)<1 or int(ch)>len(df_users):
+            print(f"{RED}❌ Invalid choice{RESET}")
+            return
+        na = df_users.iloc[int(ch)-1]["username"]
+        df_tasks.loc[df_tasks["id"]==tid, "assigned_to"] = na
+        df_tasks.loc[df_tasks["id"]==tid, "shared"] = True
+        df_tasks.to_csv(DATA_FILE, index=False)
+        tn = df_tasks[df_tasks["id"]==tid].iloc[0]["task"]
+        print(f"\n{GREEN}✅ Assigned '{tn}' to {get_user_color(na)}{na}{RESET}!")
+    except Exception as e:
+        print(f"{RED}❌ Error assigning task: {e}{RESET}")
+
+def view_my_assigned_tasks():
+    my = df_tasks[df_tasks["assigned_to"]==current_user]
+    if my.empty:
+        print(f"\n{GREEN}✅ No assigned tasks!{RESET}")
+        return
+    print(f"\n{BOLD}{MAGENTA}📥 Your Assigned Tasks{RESET}\n{'='*50}")
+    for _, t in my.iterrows():
+        tid = int(t["id"])
+        stat = f"{GREEN}✅ Completed{RESET}" if t["status"] == "Completed" else f"{YELLOW}❌ Pending{RESET}"
+        pri = "⚡ High" if t["priority"] == "Y" else "Regular"
+        tleft, _ = time_left_parts(t["deadline"])
+        dl = f"{DEEP_RED}{tleft}{RESET}" if "OVERDUE" in tleft else tleft
+        tags = format_tags(parse_tags(t["tags"]))
+        cat = get_category_display(t["category"])
+        prob = f"{GREEN}✓ {t['ai_prediction']}%{RESET}" if t["ai_prediction"] >= 50 else f"{YELLOW}⚠️ {t['ai_prediction']}%{RESET}"
+        print(f"#{tid} {t['task']} {tags}\n {cat} | {pri} | {stat} | Deadline: {dl} | AI: {prob}")
+    print("="*50)
+
+def add_comment_to_task():
+    global df_comments, comment_id_counter
+    view_tasks()
+    try:
+        tid = int(input("\nTask ID: ").strip())
+        if tid not in df_tasks["id"].values:
+            print(f"{RED}❌ Task not found{RESET}")
+            return
+        tc = df_comments[df_comments["task_id"]==tid].sort_values("timestamp")
+        if not tc.empty:
+            print(f"\n{BOLD}Comments:{RESET}")
+            for _,c in tc.iterrows():
+                ts = pd.to_datetime(c['timestamp'], errors='coerce')
+                ts_str = ts.strftime('%Y-%m-%d %H:%M') if not pd.isna(ts) else str(c['timestamp'])
+                print(f" {get_user_color(c['username'])}{c['username']}{RESET} ({ts_str}): {c['comment']}")
+        txt = input(f"\n💬 Comment: ").strip()
+        if not txt:
+            print(f"{RED}❌ Empty comment{RESET}")
+            return
+        df_comments = pd.concat([df_comments, pd.DataFrame([{
+            "comment_id": comment_id_counter, "task_id": tid, "username": current_user,
+            "comment": txt, "timestamp": pd.Timestamp.now()
+        }])], ignore_index=True)
+        df_comments.to_csv(COMMENTS_FILE, index=False)
+        comment_id_counter += 1
+        print(f"\n{GREEN}✅ Comment added!{RESET}")
+    except Exception as e:
+        print(f"{RED}❌ Error adding comment: {e}{RESET}")
+
+def team_dashboard():
+    if len(df_users) <= 1:
+        print(f"\n{YELLOW}⚠️ Add team members first{RESET}")
+        return
+    print(f"\n{BOLD}{MAGENTA}📊 Team Dashboard{RESET}\n{'='*50}")
+    tot = len(df_tasks)
+    comp = len(df_tasks[df_tasks["status"]=="Completed"])
+    rate = round((comp/tot*100) if tot>0 else 0,1)
+    print(f"\n{CYAN}Team Members:{RESET} {len(df_users)}\n{CYAN}Total Tasks:{RESET} {tot}\n{CYAN}Completed:{RESET} {GREEN}{comp}{RESET} ({rate}%)")
+    print(f"\n{BOLD}Performance Leaderboard:{RESET}")
+    perfs = []
+    for _,u in df_users.iterrows():
+        un = u["username"]
+        ut = df_tasks[df_tasks["assigned_to"]==un]
+        t = len(ut)
+        c = len(ut[ut["status"]=="Completed"])
+        r = round((c/t*100) if t>0 else 0,1)
+        perfs.append((un,t,c,r))
+    perfs.sort(key=lambda x:x[3],reverse=True)
+    for i,(un,t,c,r) in enumerate(perfs,1):
+        m = "🥇" if i==1 else "🥈" if i==2 else "🥉" if i==3 else " "
+        print(f" {m} {get_user_color(un)}{un}{RESET}: {t} tasks | {c} done | {r}%")
+    sh = df_tasks[df_tasks["shared"]==True]
+    print(f"\n{CYAN}Shared Tasks:{RESET} {len(sh)}")
+    rc = df_comments.sort_values("timestamp",ascending=False).head(5)
+    if not rc.empty:
+        print(f"\n{BOLD}Recent Comments:{RESET}")
+        for _,c in rc.iterrows():
+            ts = pd.to_datetime(c['timestamp'], errors='coerce')
+            ts_str = ts.strftime('%Y-%m-%d %H:%M') if not pd.isna(ts) else str(c['timestamp'])
+            txt = c["comment"][:50]+"..." if len(c["comment"])>50 else c["comment"]
+            print(f" {get_user_color(c['username'])}{c['username']}{RESET} ({ts_str}): {txt}")
+    try:
+        plt.figure(figsize=(8, 5))
+        plt.bar([p[0] for p in perfs], [p[3] for p in perfs], color="#00FF00")
+        plt.xlabel("Team Member")
+        plt.ylabel("Completion Rate (%)")
+        plt.title("Team Performance")
+        plt.tight_layout()
+        plt.show()
+    except Exception:
+        pass
+    print("="*50)
+
+# ------------------ LESSON 20 & 21 FEATURES (merged intelligence) ------------------
+
+# Persistence helper
+def save_all():
+    try:
+        df_tasks.to_csv(DATA_FILE, index=False)
+        df_habits.to_csv(HABITS_FILE, index=False)
+        df_reminders.to_csv(REMINDER_LOG, index=False)
+        df_users.to_csv(USERS_FILE, index=False)
+        df_comments.to_csv(COMMENTS_FILE, index=False)
+    except Exception as e:
+        print(f"{YELLOW}Warning saving files: {e}{RESET}")
+
+# Smart scheduler (Lesson20)
+def smart_daily_scheduler(available_minutes=None):
+    pending = df_tasks[(df_tasks["assigned_to"]==current_user) & (df_tasks["status"]=="Pending")].copy()
+    if pending.empty:
+        print("No pending tasks.")
+        return
+    pending["ai_prob"] = pending["ai_prediction"].apply(lambda x: float(x) if not pd.isna(x) else 50.0)
+    pending["priority_num"] = pending["priority"].apply(lambda x:2 if str(x).upper()=="Y" else 1)
+    pending["estimated_minutes"] = pending["estimated_minutes"].apply(lambda x: int(x) if not pd.isna(x) else 30)
+    def urgency(dl):
+        if pd.isna(dl): return 1.0
+        try:
+            secs = (pd.to_datetime(dl).to_pydatetime() - now_dt()).total_seconds()
+        except:
+            return 1.0
+        if secs <= 0: return 3.0
+        if secs <= 3600: return 2.0
+        if secs <= 14400: return 1.5
+        return 1.0
+    pending["urgency"] = pending["deadline"].apply(urgency)
+    pending["score"] = pending.apply(lambda r: (r["ai_prob"]/100.0) * r["priority_num"] * r["urgency"] / math.sqrt(r["estimated_minutes"]+1), axis=1)
+    pending = pending.sort_values(by="score", ascending=False)
+    if available_minutes is None:
+        end_of_day = now_dt().replace(hour=18, minute=0, second=0, microsecond=0)
+        avail = max(30, int((end_of_day - now_dt()).total_seconds()/60))
+    else:
+        avail = max(0, int(available_minutes))
+    plan = []
+    used = 0
+    for _, r in pending.iterrows():
+        est = int(r["estimated_minutes"])
+        if used + est <= avail or not plan:
+            plan.append(r)
+            used += est
+    print(f"\n{MAGENTA}📅 Smart Daily Scheduler — Available minutes: {avail}{RESET}")
+    start_time = now_dt()
+    for i, r in enumerate(plan,1):
+        block_start = start_time
+        block_end = block_start + timedelta(minutes=int(r["estimated_minutes"]))
+        start_time = block_end + timedelta(minutes=5)
+        dl_str = pd.to_datetime(r["deadline"]).strftime("%H:%M") if not pd.isna(r["deadline"]) else "No deadline"
+        print(f"{i}. {r['task']} [{r['category']}] | {block_start.strftime('%H:%M')} - {block_end.strftime('%H:%M')} | Est {int(r['estimated_minutes'])}m | AI:{round(r['ai_prob'],2)}% | DL:{dl_str}")
+    print(GREEN + f"Total scheduled: {used} minutes of {avail} available." + RESET)
+    input("Press Enter to return...")
+
+# Productivity Score System (Lesson21)
+def compute_task_metrics(period_days=1):
+    now = pd.Timestamp.now()
+    start = now - pd.Timedelta(days=period_days)
+    df = df_tasks.copy()
+    df["created_at"] = pd.to_datetime(df["created_at"], errors='coerce')
+    df_period = df[df["created_at"].notna() & (df["created_at"] >= start)].copy()
+    created = len(df_period)
+    completed = len(df_period[df_period["status"]=="Completed"])
+    overdue = len(df_period[(df_period["status"]!="Completed") & (pd.notna(df_period["deadline"])) & (pd.to_datetime(df_period["deadline"], errors='coerce') < now)])
+    avg_time = None
+    if completed > 0:
+        comp = df_period[df_period["status"]=="Completed"].copy()
+        comp["delta"] = (pd.to_datetime(comp["completed_at"], errors='coerce') - pd.to_datetime(comp["created_at"], errors='coerce')).dt.total_seconds()
+        avg_time = comp["delta"].mean()
+    return {"created":created,"completed":completed,"overdue":overdue,"avg_time_secs":avg_time}
+
+def compute_focus_bursts(period_days=1):
+    now = pd.Timestamp.now()
+    start = now - pd.Timedelta(days=period_days)
+    comp = df_tasks[(df_tasks["status"]=="Completed") & (pd.to_datetime(df_tasks["completed_at"], errors='coerce') >= start)].copy()
+    if comp.empty:
+        return {"bursts":0,"avg_burst_len_secs":0}
+    comp["delta"] = (pd.to_datetime(comp["completed_at"], errors='coerce') - pd.to_datetime(comp["created_at"], errors='coerce')).dt.total_seconds().fillna(0)
+    bursts = comp[comp["delta"] >= 25*60]
+    avg = bursts["delta"].mean() if len(bursts)>0 else 0
+    return {"bursts": int(len(bursts)), "avg_burst_len_secs": avg}
+
+def compute_active_idle_proxy(period_days=1):
+    now = pd.Timestamp.now()
+    start = now - pd.Timedelta(days=period_days)
+    interruptions = 0
+    if not df_reminders.empty:
+        interruptions = len(df_reminders[pd.to_datetime(df_reminders["timestamp"], errors='coerce') >= start])
+    comp = df_tasks[(df_tasks["status"]=="Completed") & (pd.to_datetime(df_tasks["completed_at"], errors='coerce') >= start)].copy()
+    total_work_secs = 0
+    if not comp.empty:
+        comp["delta"] = (pd.to_datetime(comp["completed_at"], errors='coerce') - pd.to_datetime(comp["created_at"], errors='coerce')).dt.total_seconds().fillna(0)
+        total_work_secs = comp["delta"].sum()
+    factor = 300
+    effective_productive = max(0, total_work_secs - interruptions * factor)
+    total_activity = total_work_secs + interruptions * factor
+    productive_ratio = (effective_productive / total_activity) if total_activity>0 else 0
+    return {"interruptions":int(interruptions), "total_work_secs":int(total_work_secs), "productive_ratio":productive_ratio}
+
+def compute_time_accuracy_penalty(period_days=1):
+    now = pd.Timestamp.now()
+    start = now - pd.Timedelta(days=period_days)
+    comp = df_tasks[(df_tasks["status"]=="Completed") & (pd.to_datetime(df_tasks["completed_at"], errors='coerce') >= start)].copy()
+    if comp.empty:
+        return {"avg_ratio":1.0, "penalty":0.0}
+    comp["actual_secs"] = (pd.to_datetime(comp["completed_at"], errors='coerce') - pd.to_datetime(comp["created_at"], errors='coerce')).dt.total_seconds().fillna(0)
+    comp["est_secs"] = comp["estimated_minutes"].apply(lambda x: int(x)*60 if not pd.isna(x) else 1800)
+    comp["ratio"] = comp.apply(lambda r: (r["actual_secs"]/r["est_secs"]) if r["est_secs"]>0 else 1.0, axis=1)
+    avg_ratio = comp["ratio"].mean()
+    penalty = 0.0
+    if avg_ratio > 1:
+        penalty = min(20, (avg_ratio - 1) * 10)
+    return {"avg_ratio":avg_ratio, "penalty":penalty}
+
+def compute_priority_score_weight(period_days=1):
+    now = pd.Timestamp.now()
+    start = now - pd.Timedelta(days=period_days)
+    dfp = df_tasks[(pd.to_datetime(df_tasks["created_at"], errors='coerce') >= start)]
+    if dfp.empty:
+        return {"priority_completion_rate":0.0, "weight":0.0}
+    total_prior = len(dfp[dfp["priority"]=="Y"])
+    if total_prior == 0:
+        return {"priority_completion_rate":0.0, "weight":0.0}
+    comp_prior = len(dfp[(dfp["priority"]=="Y") & (dfp["status"]=="Completed")])
+    rate = comp_prior / total_prior
+    weight = rate * 30
+    return {"priority_completion_rate":rate, "weight":weight}
+
+def compute_productivity_score(period_days=1):
+    tm = compute_task_metrics(period_days=period_days)
+    focus = compute_focus_bursts(period_days=period_days)
+    active = compute_active_idle_proxy(period_days=period_days)
+    time_acc = compute_time_accuracy_penalty(period_days=period_days)
+    pri = compute_priority_score_weight(period_days=period_days)
+
+    completion_rate = (tm["completed"]/tm["created"]) if tm["created"]>0 else 0.0
+    completion_component = completion_rate * 40
+    priority_component = pri["weight"]
+    time_penalty = time_acc["penalty"]
+    time_component = max(0, 15 - (time_penalty * 15/20))
+    burst_count = focus["bursts"]
+    avg_burst = focus["avg_burst_len_secs"]
+    burst_score = min(15, burst_count * 3 + (avg_burst/60)/5)
+    focus_component = min(15, burst_score)
+    raw = completion_component + priority_component + time_component + focus_component
+    final = max(0, min(100, raw))
+    breakdown = {
+        "completion_component": round(completion_component,2),
+        "priority_component": round(priority_component,2),
+        "time_component": round(time_component,2),
+        "focus_component": round(focus_component,2),
+        "final_score": round(final,2),
+        "details":{"tasks_created":tm["created"], "tasks_completed":tm["completed"], "overdue":tm["overdue"],
+                   "interruptions": active["interruptions"], "avg_completion_secs":tm["avg_time_secs"],
+                   "avg_time_ratio":time_acc["avg_ratio"] if "avg_ratio" in time_acc else None}
+    }
+    return breakdown
+
+# Habit score
+def compute_habit_score(habit_id, lookback_days=30):
+    if df_habits.empty or int(habit_id) not in list(df_habits["habit_id"].astype(int).values):
+        return {"error":"habit not found"}
+    hrow = df_habits[df_habits["habit_id"]==int(habit_id)].iloc[0]
+    recurrence = hrow.get("recurrence","daily")
+    start = pd.Timestamp.now() - pd.Timedelta(days=lookback_days)
+    instances = df_tasks[(df_tasks["habit_id"]==int(habit_id)) & (pd.to_datetime(df_tasks["created_at"], errors='coerce') >= start)]
+    if recurrence == "daily":
+        expected = lookback_days
+    elif recurrence == "weekly":
+        expected = math.ceil(lookback_days/7)
+    elif recurrence == "monthly":
+        expected = math.ceil(lookback_days/30)
+    else:
+        expected = max(1, len(instances))
+    completed = len(instances[instances["status"]=="Completed"])
+    adherence = (completed / expected) if expected>0 else 0
+    streak = 0
+    comps = df_tasks[(df_tasks["habit_id"]==int(habit_id)) & (df_tasks["status"]=="Completed")].sort_values("completed_at", ascending=False)
+    if not comps.empty:
+        expected_date = now_dt().date()
+        for _, r in comps.iterrows():
+            comp_date = pd.to_datetime(r["completed_at"]).date()
+            if recurrence == "daily":
+                if comp_date >= expected_date:
+                    streak += 1
+                    expected_date = expected_date - timedelta(days=1)
+                else:
+                    break
+            elif recurrence == "weekly":
+                if comp_date >= expected_date - timedelta(weeks=1):
+                    streak += 1
+                    expected_date = expected_date - timedelta(weeks=1)
+                else:
+                    break
+            else:
+                if comp_date >= expected_date - timedelta(days=30):
+                    streak += 1
+                    expected_date = expected_date - timedelta(days=30)
+                else:
+                    break
+    score = min(100, adherence*70 + min(30, streak*3))
+    return {"habit_id":int(habit_id),"habit_name":hrow["habit_name"], "recurrence":recurrence, "expected":expected, "completed":completed, "adherence":round(adherence,3), "streak":streak, "score":round(score,2)}
+
+# Behavioral analytics
+def behavioral_analytics(period_days=30):
+    now = pd.Timestamp.now()
+    start = now - pd.Timedelta(days=period_days)
+    comp = df_tasks[(df_tasks["status"]=="Completed") & (pd.to_datetime(df_tasks["completed_at"], errors='coerce') >= start)].copy()
+    if not comp.empty:
+        comp["day"] = pd.to_datetime(comp["completed_at"], errors='coerce').dt.floor("D")
+        daily = comp.groupby("day").size().reindex(pd.date_range(start.floor('D'), now.floor('D'), freq='D'), fill_value=0)
+        daily.index = [d.date() for d in daily.index]
+        daily_counts = daily.to_dict()
+    else:
+        daily_counts = {}
+    top_hours = {}
+    if not comp.empty:
+        comp["hour"] = pd.to_datetime(comp["completed_at"], errors='coerce').dt.hour
+        hour_counts = comp.groupby("hour").size().sort_values(ascending=False)
+        top_hours = hour_counts.head(6).to_dict()
+    cat_stats = {}
+    if "category" in df_tasks.columns:
+        for cat, grp in df_tasks.groupby("category"):
+            total = len(grp)
+            completed_grp = grp[grp["status"]=="Completed"]
+            avg_overrun = None
+            if not completed_grp.empty:
+                completed_grp = completed_grp.copy()
+                completed_grp["delta_secs"] = (pd.to_datetime(completed_grp["completed_at"], errors='coerce') - pd.to_datetime(completed_grp["created_at"], errors='coerce')).dt.total_seconds().fillna(0)
+                completed_grp["est_secs"] = completed_grp["estimated_minutes"].apply(lambda x: int(x)*60 if not pd.isna(x) else 1800)
+                completed_grp["over"] = (completed_grp["delta_secs"] - completed_grp["est_secs"])
+                avg_overrun = completed_grp["over"].mean() if len(completed_grp)>0 else 0
+            cat_stats[cat] = {"total": int(total), "completed": int((grp["status"]=="Completed").sum()), "avg_overrun_secs": float(avg_overrun) if avg_overrun is not None else None}
+    interruptions = {}
+    if not df_reminders.empty:
+        recent = df_reminders[pd.to_datetime(df_reminders["timestamp"], errors='coerce') >= start]
+        interruptions["total"] = len(recent)
+        interruptions["by_type"] = recent["alert_type"].value_counts().to_dict()
+    else:
+        interruptions["total"] = 0
+        interruptions["by_type"] = {}
+    alerts = []
+    tm7 = compute_task_metrics(period_days=7)
+    if tm7["overdue"] >= max(3, tm7["created"]//5):
+        alerts.append({"type":"miss_deadline_risk", "message":f"High overdue count in last 7 days: {tm7['overdue']}."})
+    recent_comp = df_tasks[(df_tasks["status"]=="Completed") & (pd.to_datetime(df_tasks["completed_at"], errors='coerce') >= pd.Timestamp.now() - pd.Timedelta(days=7))].copy()
+    total_work_secs = 0
+    if not recent_comp.empty:
+        recent_comp["delta"] = (pd.to_datetime(recent_comp["completed_at"], errors='coerce') - pd.to_datetime(recent_comp["created_at"], errors='coerce')).dt.total_seconds().fillna(0)
+        total_work_secs = recent_comp["delta"].sum()
+    if total_work_secs > 10*3600:
+        alerts.append({"type":"overwork", "message":f"High work detected: {int(total_work_secs/3600)} hours completed in last 7 days."})
+    inter7 = compute_active_idle_proxy(period_days=7)
+    if inter7["interruptions"] > 20:
+        alerts.append({"type":"high_context_switch", "message":f"Many interruptions ({inter7['interruptions']}) in last 7 days."})
+    return {"period_days":period_days, "daily_completed_counts":daily_counts, "top_hours":top_hours, "category_stats":cat_stats, "interruptions":interruptions, "alerts":alerts}
+
+# Admin export
+def export_admin_report(filename="admin_report.csv", period_days=30):
+    prod = compute_productivity_score(period_days=period_days)
+    ba = behavioral_analytics(period_days=period_days)
+    rows = []
+    rows.append({"metric":"productivity_score","value":prod["final_score"]})
+    for k,v in prod.items():
+        if k!="final_score":
+            rows.append({"metric":f"prod_{k}","value":str(v)})
+    rows.append({"metric":"ba_period_days","value":ba["period_days"]})
+    rows.append({"metric":"ba_top_hours","value":str(ba["top_hours"])})
+    rows.append({"metric":"ba_interruptions","value":str(ba["interruptions"])})
+    for _, h in df_habits.iterrows():
+        hid = int(h["habit_id"])
+        hs = compute_habit_score(hid, lookback_days=period_days)
+        rows.append({"metric":f"habit_{hid}_score","value":hs.get("score")})
+        rows.append({"metric":f"habit_{hid}_streak","value":hs.get("streak")})
+    out = pd.DataFrame(rows)
+    out.to_csv(filename, index=False)
+    return filename
+
+# Productivity Dashboard (Option 28)
+def user_panel():
+    prod = compute_productivity_score(period_days=1)
+    print(f"\n{MAGENTA}User Panel — Productivity Today{RESET}")
+    print(f"Score: {GREEN}{prod['final_score']}{RESET}/100")
+    print("Breakdown:")
+    print(f" - Completion: {prod['completion_component']}")
+    print(f" - Priority: {prod['priority_component']}")
+    print(f" - Time accuracy: {prod['time_component']}")
+    print(f" - Focus: {prod['focus_component']}")
+    details = prod.get("details", {})
+    print(f"Details: Tasks created {details.get('tasks_created')}, completed {details.get('tasks_completed')}, overdue {details.get('overdue')}")
+    # Habit quick view
+    print("\nHabits snapshot:")
+    if df_habits.empty:
+        print(" No habits yet.")
+    else:
+        for _, h in df_habits.iterrows():
+            hid = int(h["habit_id"])
+            hs = compute_habit_score(hid, lookback_days=14)
+            trend = "Improving" if hs.get("score",0)>=50 and hs.get("streak",0)>0 else "Needs Attention"
+            print(f" - {h['habit_name']}: Score {hs.get('score',0)} | Streak {hs.get('streak',0)} | {trend}")
+    ba = behavioral_analytics(period_days=14)
+    print("\nInsights:")
+    top_hours = ba.get("top_hours", {})
+    if top_hours:
+        print(f" - Peak productive hour(s): {', '.join([str(k)+':00' for k in top_hours.keys()])}")
+    else:
+        print(" - Not enough data to determine peak hours.")
+    cat_stats = ba.get("category_stats", {})
+    slow = sorted([(k,v.get("avg_overrun_secs") or 0) for k,v in cat_stats.items()], key=lambda x: x[1], reverse=True)
+    if slow:
+        print(f" - Most delayed category (avg overrun): {slow[0][0]} ({slow[0][1]} secs avg overrun)")
+    inter = ba.get("interruptions", {})
+    print(f" - Interruptions in period: {inter.get('total',0)}")
+    input("\nPress Enter to continue...")
+
+def admin_panel():
+    print("\n" + MAGENTA + BOLD + "Admin Panel — Team / Admin Insights" + RESET)
+    prod30 = compute_productivity_score(period_days=30)
+    print(f"Productivity Score (30 days aggregate): {GREEN}{prod30['final_score']}{RESET}/100")
+    ba = behavioral_analytics(period_days=30)
+    print("\nTop productive hours (30d):")
+    for h,c in ba.get("top_hours", {}).items():
+        print(f" - {h}:00 -> {c} tasks completed")
+    print("\nCategory stats (sample):")
+    cs = ba.get("category_stats", {})
+    for k,v in list(cs.items())[:6]:
+        print(f" - {k}: total {v['total']}, completed {v['completed']}, avg_overrun {v['avg_overrun_secs']}")
+    if ba.get("alerts"):
+        print("\n" + RED + "⚠️ Alerts:" + RESET)
+        for a in ba["alerts"]:
+            print(" -", a["message"])
+    exp = input("\nExport admin CSV report? (Y/N): ").strip().upper()
+    if exp == "Y":
+        fname = input("Filename (default admin_report.csv): ").strip() or "admin_report.csv"
+        path = export_admin_report(filename=fname, period_days=30)
+        print("Exported to:", path)
+    input("\nPress Enter to continue...")
+
+def productivity_dashboard():
+    while True:
+        print("\n" + MAGENTA + BOLD + "📊 Productivity Dashboard" + RESET)
+        print("1. User Panel")
+        print("2. Admin Panel")
+        print("3. Back to Main Menu")
+        choice = input("Choose: ").strip()
+        if choice == "1":
+            user_panel()
+        elif choice == "2":
+            admin_panel()
+        elif choice == "3":
+            break
+        else:
+            print("Invalid choice.")
+
+# ---------- MENU ----------
+def show_menu():
+    rc = reminder_queue.qsize()
+    badge = f" {RED}[{rc} alerts!]{RESET}" if rc > 0 else ""
+    mt = len(df_tasks[df_tasks["assigned_to"] == current_user])
+    print(f"{ORANGE}{'━'*40}{RESET}")
+    print(f"{ORANGE}🏠 Welcome, {MAGENTA}{current_user}{RESET}! ({mt} tasks){badge}")
+    labels = [
+        "Add Task", "View Tasks", "Remove Task", "Mark Completed", "Productivity Chart",
+        "Weekly Summary", "Top Productive Days", "Edit Task", "Filter Tasks", "Productivity Trend",
+        "Smart Productivity Trend", "Daily AI Plan", "Save & Exit", "View Reminders",
+        "Tasks by Category", "Search by Tags", "Category Summary", "Create Habit", "View Habits",
+        "Habit Dashboard", "Add Team Member 👥", "View Team 🧑‍🤝‍🧑", "Assign Task 📤",
+        "My Assigned Tasks 📥", "Add Comment 💬", "Team Dashboard 📊", "Train AI Model 🧠",
+        "Productivity Dashboard (User/Admin)"  # 28
+    ]
+    for i, label in enumerate(labels, 1):
+        print(f"{i}️⃣ {label}")
+    print(f"{ORANGE}{'━'*40}{RESET}")
+
+# ---------- MAIN ----------
+def main():
+    start_reminder_system()
+    try:
+        while True:
+            clear_console()
+            show_menu()
+            choice = input("Choose an option: ").strip()
+            if choice == "1":
+                add_task()
+            elif choice == "2":
+                view_tasks()
+            elif choice == "3":
+                remove_task()
+            elif choice == "4":
+                mark_task_completed()
+            elif choice == "5":
+                productivity_chart()
+            elif choice == "6":
+                weekly_performance_summary()
+            elif choice == "7":
+                top_productive_days()
+            elif choice == "8":
+                edit_task()
+            elif choice == "9":
+                filter_tasks()
+            elif choice == "10":
+                productivity_trend()
+            elif choice == "11":
+                smart_productivity_trend()
+            elif choice == "12":
+                daily_ai_plan()
+            elif choice == "13":
+                # Save & Exit
+                df_tasks.to_csv(DATA_FILE, index=False)
+                df_habits.to_csv(HABITS_FILE, index=False)
+                df_users.to_csv(USERS_FILE, index=False)
+                df_comments.to_csv(COMMENTS_FILE, index=False)
+                stop_reminder_system()
+                print(f"\n{GREEN}✅ Saved and exited{RESET}")
+                break
+            elif choice == "14":
+                show_pending_reminders()
+            elif choice == "15":
+                view_tasks_by_category()
+            elif choice == "16":
+                search_tasks_by_tags()
+            elif choice == "17":
+                category_summary()
+            elif choice == "18":
+                create_recurring_task()
+            elif choice == "19":
+                view_all_habits()
+            elif choice == "20":
+                habit_dashboard()
+            elif choice == "21":
+                add_team_member()
+            elif choice == "22":
+                view_team_members()
+            elif choice == "23":
+                assign_task_to_someone()
+            elif choice == "24":
+                view_my_assigned_tasks()
+            elif choice == "25":
+                add_comment_to_task()
+            elif choice == "26":
+                team_dashboard()
+            elif choice == "27":
+                train_nn_model()
+            elif choice == "28":
+                productivity_dashboard()
+            else:
+                print(f"{RED}❌ Invalid option{RESET}")
+            # Pause for user
+            input("\nPress Enter to continue...")
+    except KeyboardInterrupt:
+        # Save state on Ctrl-C
+        df_tasks.to_csv(DATA_FILE, index=False)
+        df_habits.to_csv(HABITS_FILE, index=False)
+        df_users.to_csv(USERS_FILE, index=False)
+        df_comments.to_csv(COMMENTS_FILE, index=False)
+        stop_reminder_system()
+        print(f"\n{GREEN}✅ Saved and exited{RESET}")
+
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
